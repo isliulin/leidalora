@@ -93,70 +93,46 @@ void Init_lcdkey(void)
     GPIO_InitStructure.GPIO_Pin = KEY_MENU_PIN;
     GPIO_Init(KEY_MENU_PORT, &GPIO_InitStructure);
 
+	 GPIO_InitStructure.GPIO_Pin = KEY_RTN_BACK_PIN;
+    GPIO_Init(KEY_RTN_BACK_PORT, &GPIO_InitStructure);
 
-    //OUT  (/MR	 SHCP	DS	 STCP	STCP)
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15;
+	GPIO_InitStructure.GPIO_Pin = KEY_BAKUSE_PIN;
+    GPIO_Init(KEY_BAKUSE_PORT, &GPIO_InitStructure);
+
+
+   // 显示屏管脚初始化
+
+    // INPUT
+    GPIO_InitStructure.GPIO_Pin = LCD_BUSY_PIN;
+    GPIO_Init(LCD_BUSY_PORT, &GPIO_InitStructure);
+   
+    //OUT   DB7-DB1
+    GPIO_InitStructure.GPIO_Pin = LCD_DB7_PIN| LCD_DB6_PIN | LCD_DB5_PIN | LCD_DB4_PIN|LCD_DB3_PIN|LCD_DB2_PIN|LCD_DB1_PIN;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
     GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
     GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOE, &GPIO_InitStructure);
+    GPIO_Init(LCD_DB7_PORT, &GPIO_InitStructure);
+
+    // OUT  DB0  
+	GPIO_InitStructure.GPIO_Pin = LCD_DB0_PIN|LCD_REQ_PIN|LCD_RES_PIN;
+    GPIO_Init(LCD_DB0_PORT, &GPIO_InitStructure);
+
+   //  OUT  LED
+	 GPIO_InitStructure.GPIO_Pin = LCD_LED_PIN;
+    GPIO_Init(LCD_LED_PORT, &GPIO_InitStructure);
 
 
+    LCD_RstLow(); // 
+    delay_ms(5);
+    LCD_LED_ON;
 
-    lcd_RstLow(); //
-    /*
-    	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_15;
-    	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
-        GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-        GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
-    	GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    	GPIO_Init(GPIOA, &GPIO_InitStructure);
-    	GPIO_SetBits(GPIOA,GPIO_Pin_15);
-    */
 }
 
-// note    703    按键顺序:       菜单   确认  上翻  下翻(打印)
-/*
-#define KEY_MENU_PORT	GPIOC
-#define KEY_MENU_PIN	GPIO_Pin_8
-
-#define KEY_OK_PORT		GPIOA
-#define KEY_OK_PIN		GPIO_Pin_8
-
-#define KEY_UP_PORT		GPIOC
-#define KEY_UP_PIN		GPIO_Pin_9
-
-#define KEY_DOWN_PORT	GPIOD
-#define KEY_DOWN_PIN	GPIO_Pin_3
-
-// note    705    按键顺序:       菜单   上    下   确认
-//                                                      1          2       3         4
-
-#define KEY_MENU_PORT	GPIOC
-#define KEY_MENU_PIN	GPIO_Pin_8
-
-#define KEY_OK_PORT		GPIOC
-#define KEY_OK_PIN		GPIO_Pin_9
-
-#define KEY_UP_PORT		GPIOD
-#define KEY_UP_PIN		GPIO_Pin_3
-
-#define KEY_DOWN_PORT	GPIOA
-#define KEY_DOWN_PIN	GPIO_Pin_8
-
-
-#define KeyValueMenu    1
-#define KeyValueOk      2
-#define KeyValueUP      3
-#define KeyValueDown    4
-
-
-*/
 
 void KeyCheckFun(void)
 {
-    if(!GPIO_ReadInputDataBit(GPIOD, GPIO_Pin_3))
+    if(!GPIO_ReadInputDataBit(KEY_UP_PORT, KEY_UP_PIN))
     {
         KeyCheck_Flag[0]++;
         if(KeyCheck_Flag[0] == 1)
@@ -165,7 +141,7 @@ void KeyCheckFun(void)
     else
         KeyCheck_Flag[0] = 0;
 
-    if(!GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_8))
+    if(!GPIO_ReadInputDataBit(KEY_MENU_PORT, KEY_MENU_PIN))
     {
         KeyCheck_Flag[1]++;
             if(KeyCheck_Flag[1] == 1)
@@ -176,7 +152,7 @@ void KeyCheckFun(void)
     else
         KeyCheck_Flag[1] = 0;
 
-    if(!GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_9))
+    if(!GPIO_ReadInputDataBit(KEY_OK_PORT, KEY_OK_PIN))
     {
         KeyCheck_Flag[2]++;
         if(KeyCheck_Flag[2] == 1)
@@ -187,7 +163,7 @@ void KeyCheckFun(void)
     else
         KeyCheck_Flag[2] = 0;
 
-    if(!GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_8))
+    if(!GPIO_ReadInputDataBit(KEY_DOWN_PORT, KEY_DOWN_PIN))
     {
         KeyCheck_Flag[3]++;
 
@@ -199,7 +175,47 @@ void KeyCheckFun(void)
     else
         KeyCheck_Flag[3] = 0;
 
+    //======  below   便携台--------------------
+    if(!GPIO_ReadInputDataBit(KEY_RTN_BACK_PORT, KEY_RTN_BACK_PIN))    // 退出键
+    {
+        KeyCheck_Flag[4]++;
+
+        if(KeyCheck_Flag[4] == 1)
+            KeyValue = 5;
+        else if((KeyCheck_Flag[4] > 10) && (KeyCheck_Flag[4] % 2 == 0))
+            KeyValue = 5;
+    }
+    else
+        KeyCheck_Flag[4] = 0;
+
+	if(!GPIO_ReadInputDataBit(KEY_BAKUSE_PORT, KEY_BAKUSE_PIN))      // 备用键
+    {
+        KeyCheck_Flag[5]++;
+
+        if(KeyCheck_Flag[5] == 1)
+            KeyValue = 6;
+        else if((KeyCheck_Flag[5] > 10) && (KeyCheck_Flag[5] % 2 == 0))
+            KeyValue = 6;
+    }
+    else
+        KeyCheck_Flag[5] = 0;
+
 
 	//rt_kprintf("\r\n Keyvalue=%d  \r\n",KeyValue);  
 }
 
+
+void lcd_light(u8 value) 
+{
+    if(value)
+      { 
+         LCD_LED_ON;
+		 rt_kprintf("\r\n 背光开启\r\n");
+      }		 
+	else
+	 {
+	     LCD_LED_OFF;
+         rt_kprintf("\r\n 背光关闭\r\n");
+	 }  
+}
+FINSH_FUNCTION_EXPORT(lcd_light, lcd_light(1|0)) ;  	

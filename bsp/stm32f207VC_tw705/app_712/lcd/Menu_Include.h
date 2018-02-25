@@ -6,9 +6,11 @@
 #include<./App_moduleConfig.h>
 
 #define KeyValueMenu    1
-#define KeyValueOk      2
-#define KeyValueUP      3
+#define KeyValueUP      2
+#define KeyValueOk      3
 #define KeyValueDown    4
+#define KeyValueQuit    5
+#define KeyValueApp     6
 
 //(1) 文本信息          开始Page 6800-6899   100 page
 //(2) 事件设置          开始Page 6900-6949    50 page
@@ -47,7 +49,7 @@ typedef __packed struct _menuitem *PMENUITEM;
 extern unsigned int CounterBack;
 extern unsigned char UpAndDown;
 extern unsigned char KeyValue;
-extern u16 KeyCheck_Flag[4];
+extern u16 KeyCheck_Flag[6];
 
 
 typedef __packed struct
@@ -131,14 +133,14 @@ extern u8 SpeedStatus_abnormal;//速度状态异常
 
 extern u8 Menu_txt_state;	//	缺纸 1	 IC卡不匹配2
 
+extern  u8 Menu_Number;  // 界面 编号  1: idle  2: handle  3: detect 4: Txt
+
 ALIGN(RT_ALIGN_SIZE)extern  MENUITEM    *pMenuItem;
 
 ALIGN(RT_ALIGN_SIZE)extern  MENUITEM    Menu_TXT;
-
-
-
 ALIGN(RT_ALIGN_SIZE)extern  MENUITEM	Menu_1_Idle;
-ALIGN(RT_ALIGN_SIZE)extern  MENUITEM	Menu_1_menu;
+ALIGN(RT_ALIGN_SIZE)extern  MENUITEM	Menu_2_handle;  //  手动发送测试报文
+ALIGN(RT_ALIGN_SIZE)extern  MENUITEM	Menu_3_detect;  //   检测网络情况 
 
 
 

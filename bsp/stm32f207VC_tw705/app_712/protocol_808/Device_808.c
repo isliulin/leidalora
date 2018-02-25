@@ -37,166 +37,6 @@ u32  DutyCycle	= 0;
 
 
 
-
-
-//------------  AD    电压相关  --------------------
-void AD_PowerInit(void)
-{
-    Power_AD.ADC_ConvertedValue = 0; //电池电压AD数值
-    Power_AD.AD_Volte = 0;    // 采集到的实际电压数值
-    Power_AD.Classify_Door = 160; //  区分大车小车类型，  >16V  大型车 <16V 小型车
-    Power_AD.LowWarn_Limit_Value = 10; //  欠压报警门限值
-    Power_AD.LowPowerCounter = 0;
-    Power_AD.CutPowerCounter = 0;
-    Power_AD.PowerOK_Counter = 0;
-    Power_AD.Battery_Flag = 0;
-}
-
-//------- 电压检测----
-void  Voltage_Checking(void)
-{
-    //----------------------
-    //------------- 电源电压AD显示 -----------------------
-    Power_AD.ADC_ConvertedValue = ADC_ConValue[0];
-    Power_AD.AD_Volte = ((Power_AD.ADC_ConvertedValue * 543) >> 12);
-    //  ---电源欠压报警----
-    Power_AD.AD_Volte = Power_AD.AD_Volte + 11;
-
-    //  -----  另外2 路	AD 的采集电压值转换
-    // 1 .through  1  Voltage Value
-    AD_2through[0] = (((ADC_ConValue[1] - 70) * 543) >> 12);
-    AD_2through[0] = AD_2through[0] + 11 + 10;
-    AD_2through[0] = AD_2through[0] * 100; // mV
-    // 2 .through  2  Voltage Value
-    AD_2through[1] = (((ADC_ConValue[2] - 70) * 543) >> 12);
-    AD_2through[1] = AD_2through[1] + 11 + 10;
-    AD_2through[1] = AD_2through[1] * 100;
-
-
-    //------------外部断电---------------------
-    if(Power_AD.AD_Volte < 80) //  小于50 认为是外部断电
-    {
-        Power_AD.PowerOK_Counter = 0;
-        Power_AD.CutPowerCounter++;
-        if(Power_AD.CutPowerCounter > 2)
-        {
-            Power_AD.CutPowerCounter = 0;
-            Power_AD.LowPowerCounter = 0;
-
-            //------ 超级电容	为高则 启动了
-            if(Power_AD.Battery_Flag == 0)
-            {
-                //  1.  正常操作
-                //rt_kprintf("\r\n POWER CUT \r\n");
-                Power_AD.Battery_Flag = 1;
-                PositionSD_Enable();
-                Current_UDP_sd = 1;
-
-                // 2.	 GB19056 相关
-                //  事故疑点2	   : 外部断电触发事故疑点存储
-                //save 断电记录
-              
-                //-------------------------------------------------------
-            }
-            //--------------------------------
-        }
-
-    }
-    else
-    {
-
-        //    电源正常情况下
-        Power_AD.CutPowerCounter = 0;
-        if(Power_AD.Battery_Flag == 1)
-        {
-            Power_AD.PowerOK_Counter++;
-            if(Power_AD.PowerOK_Counter > 10000)
-            {
-                // 1 .	正常操作
-                // rt_kprintf("\r\n POWER OK!\r\n");
-                Power_AD.Battery_Flag = 1;
-                PositionSD_Enable();
-                Current_UDP_sd = 1;
-                // GB19056	相关
-                //  电源恢复正常记录
-                //-------------------------------------------------------
-                Power_AD.PowerOK_Counter = 0;
-                Power_AD.Battery_Flag = 0;
-            }
-        }
-
-        //------------判断欠压和正常-----
-        // 根据采集到的电压区分电瓶类型，修改欠压门限数值
-        if(Power_AD.AD_Volte <= 160) 	// 16V
-            Power_AD.LowWarn_Limit_Value = 100; // 小于16V  认为是小车 ，欠压门限是10V
-        else
-            Power_AD.LowWarn_Limit_Value = 170; // 大于16V  认为是大车 ，欠压门限是17V
-
-
-
-        if(Power_AD.AD_Volte < Power_AD.LowWarn_Limit_Value)
-        {
-            if((Warn_Status[3] & 0x80) == 0x00)
-            {
-                Power_AD.LowPowerCounter++;
-                if(Power_AD.LowPowerCounter > 8)
-                {
-                    Power_AD.LowPowerCounter = 0;
-                    Warn_Status[3] |= 0x80; //欠压报警
-                    PositionSD_Enable();
-                    Current_UDP_sd = 1;
-                    if(GB19056.workstate == 0)
-                        rt_kprintf("\r\n 欠压! \r\n");
-                }
-            }
-        }
-        else
-        {
-            if(((Warn_Status[3] & 0x80) == 0x80) && (GB19056.workstate == 0))
-                rt_kprintf("\r\n 欠压还原! \r\n");
-
-            Power_AD.LowPowerCounter = 0;
-            Warn_Status[3] &= ~0x80; //取消欠压报警
-        }
-
-        //---------------------------------------
-    }
-
-}
-
-u8  HardWareGet(void)
-{
-    //  获取硬件版本信息
-    // -----    硬件版本状态监测 init  ----------------------
-    /*
-    PA13	1	复用硬件版本判断
-    PA14	1	复用硬件版本判断
-    PB3       0	复用硬件版本判断
-     */
-    u8   Value = 0;
-
-    //-----------------------------------------------------------
-    if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_13)) // bit 2
-        Value |= 0x04;
-    else
-        Value &= ~0x04;
-    //----------------------------------------------------------
-    if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_14)) // bit 1
-        Value |= 0x02;
-    else
-        Value &= ~0x02;
-    //------------------------------------------------------------
-    if(GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_3)) // bit0
-        Value |= 0x01;
-    else
-        Value &= ~0x01;
-    //------------------------------------------------------------
-    rt_kprintf("\r\n  硬件版本读取: %2X", Value);
-    return Value;
-}
-//FINSH_FUNCTION_EXPORT(HardWareGet, HardWareGet);
-
-
 void WatchDog_Feed(void)
 {
     if(wdg_reset_flag == 0)
@@ -245,6 +85,31 @@ void WatchDogInit(void)
     IWDG_Enable();
 }
 
+void  Amplifier_ON(void)
+{
+    AMPL_G0_OFF;//  01
+	AMPL_G1_ON; //0  
+
+    //---------
+     AMPL_SHUTDN_ON;  //PD0
+	 SPEAK_SHDN_ON;   // PD4  Sheangya  
+
+
+	 // Board
+	 AMPL_BOARD_ON;
+}
+
+void  Amplifier_OFF(void)
+{
+       //---------
+     AMPL_SHUTDN_OFF;  //PD0
+	 SPEAK_SHDN_OFF;   // PD4  Sheangya 
+
+	  // Board
+	 AMPL_BOARD_OFF;
+}
+
+
 void  APP_IOpinInit(void)   //初始化 和功能相关的IO 管脚
 {
     GPIO_InitTypeDef        gpio_init;
@@ -280,21 +145,30 @@ void  APP_IOpinInit(void)   //初始化 和功能相关的IO 管脚
     gpio_init.GPIO_Mode	= GPIO_Mode_OUT;
     GPIO_Init(GPIOE, &gpio_init);
 	
-    lora_mode(1); 
+    lora_mode(0); 
     //------------------- PB1 -----------------------------
     gpio_init.GPIO_Pin	= GPIO_Pin_1;   //------未定义   输出 常态置0
     gpio_init.GPIO_Mode	= GPIO_Mode_OUT;
     GPIO_Init(GPIOB, &gpio_init);
 
-    //------------------- PD9 -----------------------------
-    gpio_init.GPIO_Pin	= GPIO_Pin_9;   // 功放
+	Disable_Relay();// 
+
+    //------------------- 功放设置-----------------------------
+    gpio_init.GPIO_Pin	= AMPL_G0_PIN|AMPL_G1_PIN|AMPL_SHUTDN_PIN|AMPL_BOARD_PIN;   //G0  G1 SHUTDOWN
     gpio_init.GPIO_Mode	= GPIO_Mode_OUT;
-    GPIO_Init(GPIOD, &gpio_init);
+    GPIO_Init(AMPL_G0_PORT, &gpio_init);
+
+    
+
     Speak_OFF;
+
+	gpio_init.GPIO_Pin = SPEAK_SHDN_PIN;		//-----  升压控制
+    GPIO_Init(SPEAK_SHDN_PORT, &gpio_init);
+    SPEAK_SHDN_OFF;
     //====================================================================
     //-----------------------写继电器常态下的情况------------------
     // GPIO_ResetBits(GPIOB,GPIO_Pin_1);	 //输出常态 置 0
-    GPIO_SetBits(GPIOB, GPIO_Pin_1);	 //输出常态 置 0
+    //GPIO_SetBits(GPIOB, GPIO_Pin_1);	 //输出常态 置 0
 
     // GPIO_ResetBits(GPIOA,GPIO_Pin_13);	 // 关闭蜂鸣器
     /*
@@ -371,14 +245,14 @@ void  APP_IOpinInit(void)   //初始化 和功能相关的IO 管脚
 void  Enable_Relay(void)
 {
     // 断开继电器
-
-    GPIO_SetBits(RELAY_IO_Group, RELAY_Group_NUM); // 断开
+   GPIO_SetBits(RELAY_IO_Group, RELAY_Group_NUM); // 断开
+  // GPIO_ResetBits(RELAY_IO_Group, RELAY_Group_NUM);
 }
 void  Disable_Relay(void)
 {
     // 接通继电器
-
-    GPIO_ResetBits(RELAY_IO_Group, RELAY_Group_NUM); // 通
+   // GPIO_SetBits(RELAY_IO_Group, RELAY_Group_NUM);
+   GPIO_ResetBits(RELAY_IO_Group, RELAY_Group_NUM); // 通
 }
 
 
@@ -432,7 +306,7 @@ void TIM3_IRQHandler(void)
         //---------------------Timer  Counter --------------------------
         TIM3_Timer_Counter++;
 
-        if(TIM3_Timer_Counter == 300) //20ms
+        if(TIM3_Timer_Counter == 500) //20ms
         {
            #if 1
              //--------  service ------------------
@@ -441,8 +315,6 @@ void TIM3_IRQHandler(void)
 			#endif
             TIM3_Timer_Counter = 0;
         }
-        // --- 电压检测
-        Voltage_Checking();
         //-------------One Counter  ---------------
         TIM3_OneSecondCounter++;
 
@@ -456,39 +328,12 @@ void TIM3_IRQHandler(void)
 	        } 
 		}
         //   1 s
-        //------------ GB19056  related -------------
-        if(GB19056.DB9_7pin)
-        {
-            GB19056.Plus_tick_counter++;
-            if(GB19056.Deltaplus_outEnble == 2)
-            {
-                if(GB19056.Plus_tick_counter >= GB19056.DeltaPlus_out_Duration)
-                {
-                    GPIO_SetBits(GPIOB, GPIO_Pin_1);	  //输出常态 置 1
-                    GB19056.Plus_tick_counter = 0;
-                }
-                else if(GB19056.Plus_tick_counter == 10)
-                {
-                    GPIO_ResetBits(GPIOB, GPIO_Pin_1);	  //输出常态 置 0
-                }
-
-            }
-            else if(GB19056.Deltaplus_outEnble == 1)
-            {
-                if(GB19056.Plus_tick_counter >= 10000)
-                {
-                    GPIO_SetBits(GPIOB, GPIO_Pin_1);	  //输出常态 置 1
-                    GB19056.Plus_tick_counter = 0;
-                }
-                else if(GB19056.Plus_tick_counter == 10)
-                {
-                    GPIO_ResetBits(GPIOB, GPIO_Pin_1);	  //输出常态 置 0
-                }
-            }
-        }
         //---------------------------------------------------------------
     }
 }
+
+
+
 
 /*************************************************
 Function:    void GPIO_Config(void)
@@ -565,131 +410,9 @@ void TIM_Config_PWM(void)
     TIM_Cmd(TIM2, ENABLE); //使能TIM2定时器
 }
 
-
-//---------------------------------------------------------------------------------------------------
-void Init_ADC(void)
-{
-
-    ADC_InitTypeDef   ADC_InitStructure;
-    GPIO_InitTypeDef		gpio_init;
-    ADC_CommonInitTypeDef  ADC_CommonInitStructure;
-    DMA_InitTypeDef DMA_InitStructure;
-
-
-    //  1.  Clock
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_DMA2 | RCC_AHB1Periph_GPIOA | RCC_AHB1Periph_GPIOC, ENABLE);
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_ADC1, ENABLE);
-
-    //  2.  GPIO  Config
-    //------Configure PC.5 (ADC Channel15) as analog input -------------------------
-    gpio_init.GPIO_Pin = GPIO_Pin_5;
-    gpio_init.GPIO_Mode = GPIO_Mode_AIN;
-    GPIO_Init(GPIOC, &gpio_init);
-
-
-#ifdef BD_IO_Pin6_7_A1C3
-    //------Configure PA.1 (ADC Channel1) as analog input -------------------------
-    gpio_init.GPIO_Pin = GPIO_Pin_1;
-    gpio_init.GPIO_Mode = GPIO_Mode_AIN;
-    GPIO_Init(GPIOA, &gpio_init);
-
-    //------Configure PC.3 (ADC Channel13) as analog input -------------------------
-    gpio_init.GPIO_Pin = GPIO_Pin_3;
-    gpio_init.GPIO_Mode = GPIO_Mode_AIN;
-    GPIO_Init(GPIOC, &gpio_init);
-#endif
-
-
-    //  3. ADC Common Init
-    /* ADC Common configuration *************************************************/
-    ADC_CommonInitStructure.ADC_Mode = ADC_Mode_Independent; /*在独立模式下 每个ADC接口独立工作*/
-    ADC_CommonInitStructure.ADC_Prescaler = ADC_Prescaler_Div2;
-    ADC_CommonInitStructure.ADC_DMAAccessMode = ADC_DMAAccessMode_1;// ADC_DMAAccessMode_Disabled;
-    ADC_CommonInitStructure.ADC_TwoSamplingDelay = ADC_TwoSamplingDelay_5Cycles;
-    ADC_CommonInit(&ADC_CommonInitStructure);
-
-
-    ADC_InitStructure.ADC_Resolution = ADC_Resolution_12b;
-    ADC_InitStructure.ADC_ScanConvMode = ENABLE;  // if used  multi channels set enable
-    ADC_InitStructure.ADC_ContinuousConvMode = ENABLE;
-    ADC_InitStructure.ADC_ExternalTrigConvEdge = ADC_ExternalTrigConvEdge_None;
-    ADC_InitStructure.ADC_ExternalTrigConv = ADC_ExternalTrigConv_T1_CC1;
-    ADC_InitStructure.ADC_DataAlign = ADC_DataAlign_Right;
-    ADC_InitStructure.ADC_NbrOfConversion = 3;    // number of   channel
-    ADC_Init(ADC1, &ADC_InitStructure);
-
-
-    //  4. DMA  Config
-    /* DMA2 Stream0 channel0 configuration */
-    DMA_InitStructure.DMA_Channel = DMA_Channel_0;
-    DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)ADC1_DR_Address;
-    DMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)ADC_ConValue;
-    DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralToMemory;
-    DMA_InitStructure.DMA_BufferSize = 3;
-    DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
-    DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
-    DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_HalfWord;
-    DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_HalfWord;
-    DMA_InitStructure.DMA_Mode = DMA_Mode_Circular;
-    DMA_InitStructure.DMA_Priority = DMA_Priority_High;
-    DMA_InitStructure.DMA_FIFOMode = DMA_FIFOMode_Disable;
-    DMA_InitStructure.DMA_FIFOThreshold = DMA_FIFOThreshold_HalfFull;
-    DMA_InitStructure.DMA_MemoryBurst = DMA_MemoryBurst_Single;
-    DMA_InitStructure.DMA_PeripheralBurst = DMA_PeripheralBurst_Single;
-    DMA_Init(DMA2_Stream0, &DMA_InitStructure);
-
-    /* DMA2_Stream0 enable */
-    DMA_Cmd(DMA2_Stream0, ENABLE);
-
-
-    /* ADC1 regular channel15 configuration *************************************/
-    ADC_RegularChannelConfig(ADC1, ADC_Channel_15, 1, ADC_SampleTime_3Cycles);  // 通道1  电池电量
-    /* ADC1 regular channel1 configuration *************************************/
-    ADC_RegularChannelConfig(ADC1, ADC_Channel_1, 2, ADC_SampleTime_3Cycles);   //  通道2   灰线
-    /* ADC1 regular channel13 configuration *************************************/
-    ADC_RegularChannelConfig(ADC1, ADC_Channel_13, 3, ADC_SampleTime_3Cycles);  // 通道3   绿线
-
-    /* Enable DMA request after last transfer (Single-ADC mode) */
-    ADC_DMARequestAfterLastTransferCmd(ADC1, ENABLE);
-
-    /* Enable ADC1 DMA */
-    ADC_DMACmd(ADC1, ENABLE);
-
-    /* Enable ADC3 */
-    ADC_Cmd(ADC1, ENABLE);
-
-    ADC_SoftwareStartConv(ADC1);
-
-    //====================================
-
-}
 //==========================================================
 
-void dispdata(char *instr)
-{
-    if (strlen((const char *)instr) == 0)
-    {
-        DispContent = 1;
-        return ;
-    }
-    else
-    {
-        DispContent = (instr[0] - 0x30);
-        rt_kprintf("\r\n		Dispdata =%d \r\n", DispContent);
-		/*
-		if(DispContent==1)
-		   speed_Exd.PlayState=1;
-		else
-			{
-                speed_Exd.PlayState=0; 
-		         speed_Exd.PlayCounter=0;
- 
-			}
-		*/
-        return;
-    }
-}
-FINSH_FUNCTION_EXPORT(dispdata, Debug disp set) ;
+
 
 
 int str2ipport(char *buf, u8 *ip, u16 *port)

@@ -12,9 +12,11 @@
 #include "Device_808.h"
 
 
-#define   SYSID            0x3902     //55AA     A712
+#define   SYSID            0x8888     //55AA     A712
 #define   LORA_DEFAULT_ADDR       0x1234    // 
 #define   LORA_DEFAULT_CHANNEL    23       //0X19  25
+#define   LORA_SYS_CHANNEL        23        //17   默认信道
+
 
 /*
       主机    0x1236       0x19       25
@@ -86,7 +88,10 @@ u8  SysConfig_init(void)
 	SysConf_struct.LORA_Local_Channel=0;
 	SysConf_struct.LORA_dest1_ADDRESS=LORA_DEFAULT_ADDR;  
 	SysConf_struct.LORA_dest1_Channel=LORA_DEFAULT_CHANNEL;
-	SysConf_struct.LORA_TYPE=LORA_RELAYSTAION;  // 中继
+	SysConf_struct.LORA_SYS_Channel=LORA_SYS_CHANNEL;  //	LORA  系统频点
+	SysConf_struct.LORA_TYPE=LORA_HANDLE_DEV;  // 终端 
+	SysConf_struct.LORA_DIRECTION=0;
+	SysConf_struct.RTC_updated=0;    //  RTC 校准状态标志位
 	memset( SysConf_struct.LORA_PointDesc,0,sizeof( SysConf_struct.LORA_PointDesc));
 	memcpy(SysConf_struct.LORA_PointDesc,"终端功能描述",12);
     
@@ -190,7 +195,9 @@ void SysConfig_Read(void)
    //  这个有用
     DF_Read_RecordAdd(cycle_write, cycle_read, TYPE_CycleAdd);
    
-	
+
+	// important  use it  first
+	rt_device_write(&Device_UsrSerial, 0, ( const void *)res, (rt_size_t)3);    
 
 }
 

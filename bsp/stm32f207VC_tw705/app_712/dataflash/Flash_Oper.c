@@ -113,10 +113,6 @@ u8 ReadCycleGPS(u32 cycleread, u8 *content , u16 ReadLen)
     //  获取信息长度
     Len_read = content[0];
 
-    if(DispContent == 2)
-    {
-        OutPrint_HEX("读取CycleGPS 内容为 ", content, Len_read + 1);
-    }
     //  3. Judge FCS
     //--------------- 过滤已经发送过的信息 -------
     FCS = 0;
@@ -249,10 +245,7 @@ u8  Common_ReadContent(u32 In_read, u8 *content , u16 ReadLen, u8 Type)
     //	 2. Write Record Content
     DF_ReadFlash(pageoffset + Start_offset, InPageAddr, content, ReadLen);
     DF_delay_us(10);
-    if(DispContent)
-    {
         OutPrint_HEX("读取Common 内容为 ", content, ReadLen);
-    }
     //	3. Judge FCS
     //--------------- 过滤已经发送过的信息 -------
     FCS = 0;

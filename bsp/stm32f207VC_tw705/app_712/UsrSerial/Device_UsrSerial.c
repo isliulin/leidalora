@@ -19,8 +19,10 @@
 
 // ----- LORA related   ------
 //  Note  :  当前应用只设置地址和信道号,HEAD 采用C0  (掉电保存)   1A 传输速率  C4:定向发送方式
-//                                             HEAD   ADDH  ADDL  Baud  CHNL    TX_MODE
+//                                            HEAD   ADDH  ADDL  Baud  CHNL    TX_MODE
 u8	 Lora_config_CMD[6] = {0xC0, 0x12, 0x34, 0x1A, 0x17, 0xC4};
+u8   Lora_rd_config[3]={0xC1,0xC1,0xC1};
+u8   Lora_configging=0;  // 模块配置中 
 LORA_STATE LORA_RUN;
 
 
@@ -30,17 +32,11 @@ u16   U3_content_len = 0;
 u8   U3_flag = 0;
 u16   U3_rxCounter = 0;
 
-// 油耗相关
-#define   ABNORMAL_MAXTIMES      30
-#define   Zero_Clear_MAXTIMES     60
-#define   OIL_CONNECT_MAXTIME      300  //5 分钟
 
 
 
 
 
-
-YH   Oil;
 
 
 #ifdef RT_USING_DEVICE
@@ -48,6 +44,42 @@ struct rt_device  Device_UsrSerial;
 #endif
 
 
+
+//------------------------------
+void test_ack_timer(void)
+{
+  if(LORA_RUN.test_flag==1)
+  	{
+        LORA_RUN.test_counter++;
+		{
+		    if(LORA_RUN.test_counter>4)
+             {
+                LORA_RUN.test_counter=0;
+                LORA_RUN.test_send_flag=1; 
+				LORA_RUN.test_flag=0;
+		     }
+		}
+
+  	}
+}
+
+void lora_testack_stuff(void)
+{
+    u8  TX_CHECK[33];
+
+   memset(TX_CHECK,0,sizeof(TX_CHECK)); 
+   memcpy(TX_CHECK,"P1-ACK\r\n",8);    
+   Lora_Tx(TX_CHECK);  
+
+}
+
+
+
+
+
+
+
+//---------------------------------------------------------
 
 unsigned long AssicBufToUL(char * buf,unsigned int num)
 {
@@ -71,209 +103,66 @@ unsigned long AssicBufToUL(char * buf,unsigned int num)
  return retLong;
 }
 
-uint8_t u3_process_YH( uint8_t * pinfo )
+
+
+void  Lora_TTS_play_Process(void)
 {
-	//检查数据完整性,执行数据转换
-	uint8_t		i;
-	uint8_t		buf[32];
-	uint8_t		commacount	= 0, count = 0;
-	uint8_t		*psrc		= pinfo + 7; //指向开始位置
-	uint8_t		crc = 0,crc2;
-	u32  temp_u32data=0;
 
-	for(i=0;i<52;i++) 
-		{
-		crc += pinfo[i];
-		}
-	//rt_kprintf("\n   CRC1    =0x%2X",crc); 
-	while( *psrc++ )
-	{
-		if(( *psrc != ',' )&&(*psrc != '#'))
-		{
-			buf[count++]	= *psrc;
-			buf[count]		= 0;
-			if(count+1 >= sizeof(buf))
-				return 1;
-			continue;
-		}
-		commacount++;
-		switch( commacount )
-		{
-			case 1: /*协议相关内容，4字节*/
-				break;
+    if((LORA_RUN.Played_times)&&(TTS_Var.NeedtoPlay==0)&&(TTS_Var.Playing==0))
+    {  
+        rt_kprintf("\r\n 重复播放消息 ID=%d   第 %d 次重播 \r\n",LORA_RUN.RX_MSG_ID,3-LORA_RUN.Played_times);
+        TTS_play(LORA_RUN.Play_str);	
+        LORA_RUN.Played_times--;
 
-			case 2: /*硬件相关版本等，3字节*/
-				break;
+		     //  更新显示信息
+       if(Menu_Number==1)
+		 {		   
+	        pMenuItem = &Menu_1_Idle;
+	        pMenuItem->show();
+			memset(LORA_RUN.ComeDirectStr,0,sizeof(LORA_RUN.ComeDirectStr));
+		    memcpy(LORA_RUN.ComeDirectStr,LORA_RUN.Play_str+7,12);
+			rt_kprintf("\r\n dispcontent:%s",LORA_RUN.ComeDirectStr);
+			LORA_RUN.Come_state=1;
+       	}
+    }
+} 
 
-			case 3: /*设备上线时长，千时，百时，十时，个时，十分，个分；6字节*/
-				break;
-
-			case 4: /*平滑处理后的液位值；5字节*/
-				if(count<5)
-					return 0;
-				Oil.oil_average_value = AssicBufToUL(buf,5);
-				//rt_kprintf("\n 液位平均值=%d",Oil.oil_average_value);
-				break;
-			case 5: /*数据滤波等级；1字节*/
-				break;
-			case 6: /*车辆运行和停止状态；2字节*/
-				break;
-			case 7: /*当前实时液位正负1cm范围内的液位个数；2字节*/
-				break;
-			case 8: /*接收信号灵明度，共85级；2字节*/
-				break;
-			case 9: /*信号强度，最大99；2字节*/
-				break;
-			case 10: /*实时液位，精度0.1mm；5字节*/
-				if(count<5)
-					return 0;
-				Oil.oil_realtime_value = AssicBufToUL(buf,5);
-				//rt_kprintf(" 实时值=%d",Oil.oil_realtime_value);
-				break;
-			case 11: /*满量程，默认为800；5字节*/
-				if(count<5)
-					return 0;
-				temp_u32data = AssicBufToUL(buf,5);
-				//rt_kprintf(" 满量程=%d",temp_u32data);
-				break;
-			case 12: /*从"*"开始前面52个字符的和；2字节*/
-				  Ascii_To_Hex(buf,&crc2,1);  
-				//rt_kprintf("\n   CRC2    =0x%2X",crc2);  
-				if(crc2 == crc)
-				 {	
-				   //  Data come  ,  update  every packet
-				    Oil.oil_YH_no_data_Counter=0;
-
-                   //  check the   change  
-					if(Oil.oil_realtime_value!= Oil.oil_average_value)  // 实时数值和 平均不等更新实时数值
-						{
-						  Oil.oil_value = Oil.oil_average_value;
-						 if((GB19056.workstate == 0)&&(DispContent))
-						     rt_kprintf("\r\n Finalvalue update =%d",Oil.oil_value);
-
-						   //  update Oil workstate
-						   if(Oil.oil_realtime_value)
-				            {
-				               Oil.oil_YH_workstate=OIL_NORMAL;
-							   Oil.oil_YH_no_data_Counter=0;
-							   Oil.oil_YH_0_value_cacheCounter=0;
-							   Oil.oil_YH_Abnormal_counter=0;
-							   Warn_Status[0] &= ~0x02; //   油量异常还原正常
-						   	}  
-						   else
-						   	{   // check  with vehicle  speed 
-						   	  if(Oil.oil_YH_workstate==OIL_NORMAL)
-						   	  {
-								   	    if(Speed_gps >100)  //  Speed_gps > 10 km/h    
-		                                {
-		                                   Oil.oil_YH_Abnormal_counter++;
-										   if(Oil.oil_YH_Abnormal_counter>ABNORMAL_MAXTIMES)  //  30次是300s   5分钟
-										   	{
-										   	   Oil.oil_YH_workstate=OIL_ABNORMAL;
-											   Oil.oil_YH_Abnormal_counter=0;
-											    Warn_Status[0] |= 0x02; //   油量异常还原正常
-		                                      // rt_kprintf("\r\n 油耗盒工作异常"); 
-											   
-										   	}
-										    Oil.oil_YH_0_value_cacheCounter=0; 
-
-								   	    } 
-										else
-										{
-										   if(Oil.oil_YH_Abnormal_counter)
-										   	{
-										   	   Oil.oil_YH_0_value_cacheCounter++;
-											   if(Oil.oil_YH_0_value_cacheCounter>Zero_Clear_MAXTIMES)
-											   	{
-		                                           Oil.oil_YH_0_value_cacheCounter=0;
-									               Oil.oil_YH_Abnormal_counter=0;    // just  clear coutner  not  change the state
-									              // rt_kprintf("\r\n 速度小于10km 清除中"); 
-											   	}
-										   	}							    
-
-										}
-								
-						       }
-						   	}
-						}
-				    // 	Debug related
-						if((GB19056.workstate == 0)&&(DispContent))
-					       rt_kprintf("\r\n Average =%d,realtime=%d,final=%d 剩余量=%d.%d升  speed=%d  \r\n",Oil.oil_average_value,Oil.oil_realtime_value,Oil.oil_value,Oil.oil_value/10,Oil.oil_value%10,Speed_gps);  
-				 } 
-				break;
-		}
-		count	= 0;
-		buf[0]	= 0;
-	}
-	return 9;
+void  Lora_tts_play_newcome(void)
+{
+   LORA_RUN.Played_times=2;  // 准备播放3次
 }
 
-
-//   检查油耗盒的连接状态      in     1s  
-void Oil_Sensor_Connect_Checking(void)
+void Lora_inspect_stuff(void)    //  填充便携台巡检报文
 {
-  if(Oil.oil_YH_workstate)
-   {
-     Oil.oil_YH_no_data_Counter++;
-	 if(Oil.oil_YH_no_data_Counter>OIL_CONNECT_MAXTIME)
-	 {
-	       Oil.oil_YH_no_data_Counter=0;
-           Oil.oil_YH_workstate=OIL_NOCONNECT;
-	 	   Oil.oil_YH_no_data_Counter=0;
-	 	   Oil.oil_YH_0_value_cacheCounter=0;
-	 	   Oil.oil_YH_Abnormal_counter=0;    // 油耗异常状态
-	 	   Warn_Status[0] &= ~0x02; //   油量异常还原正常
-	 	   	if((GB19056.workstate == 0)&&(DispContent))
-	 	   		rt_kprintf("\r\n     油耗盒断开"); 
-  	 }
-	
-   }
+   u8  TX_CHECK[33];
+
+   memset(TX_CHECK,0,sizeof(TX_CHECK)); 
+   memcpy(TX_CHECK,"CHECK\r\n",7);   
+   Lora_Tx(TX_CHECK); 
+   
 }
-
-
 
 void  Lora_const_style_stuff(void)
 {
-    //TTS_play("2017年1月11日20时34分22秒,消息挨低,22")
-  #if 0
-	if(LORA_RUN.HandsendFlag==1)
-	{
-	    memset(LORA_RUN.TX_buff,0,sizeof(LORA_RUN.TX_buff));
-		LORA_RUN.TX_buff[0]=UDP_dataPacket_flag;
-		sprintf(LORA_RUN.TX_buff+1," %d-%d-%d %d:%d:%d  CMDID=%d", time_now.year, time_now.month, time_now.day, time_now.hour, \
-			  	   time_now.min,time_now.sec,&LORA_RUN.MSG_ID); 
-	    
-	    Lora_Tx(LORA_RUN.TX_buff); 
-		LORA_RUN.HandsendFlag=0;
-	}	
-  #endif	
+   u8  TX_33BUF[33];
 
-    if(SysConf_struct.LORA_TYPE==LORA_RADRCHECK)    //  非雷达点就显示接收内容
+    if(SysConf_struct.LORA_TYPE==LORA_HANDLE_DEV)    //  非雷达点就显示接收内容
 	{
-		 //  ----  显示部分
-		memset(LORA_RUN.Tx_Disp,0,sizeof(LORA_RUN.Tx_Disp));	
-		/* 
-		sprintf(LORA_RUN.Tx_Disp,"%c20%02d年%02d月%02d日%02d时%02d分%02d秒,消息挨低%d",UDP_dataPacket_flag,time_now.year, time_now.month,time_now.day,\
-								  time_now.hour,time_now.min,time_now.sec,LORA_RUN.MSG_ID);
-		rt_kprintf("\r\n Rada_disp:%s",LORA_RUN.Tx_Disp);
-		*/
-		sprintf(LORA_RUN.Tx_Disp,"%c%02d时%02d分%02d秒,消息ID%d",UDP_dataPacket_flag,\
-								  time_now.hour,time_now.min,time_now.sec,LORA_RUN.MSG_ID); 
-		rt_kprintf("\r\n Rada_disp:%s",LORA_RUN.Tx_Disp);
-		LORA_RUN.Tx_Disp[strlen(LORA_RUN.Tx_Disp)]=0x0D;
-		LORA_RUN.Tx_Disp[strlen(LORA_RUN.Tx_Disp)]=0x0A;
+		memset(TX_33BUF,0,sizeof(TX_33BUF));	
+		memcpy(TX_33BUF,"VA-RS-",6);    // 测试 RS taken
+		sprintf(TX_33BUF+6,"%02X-%02X-%02X-%d-%d",\
+								  rtc_current.BCD_6_Bytes[3],rtc_current.BCD_6_Bytes[4],rtc_current.BCD_6_Bytes[5],_485_speed,LORA_RUN.TX_MSG_ID); 
+
+       /*      发送消息格式                 
+			 EE-HH-MM-SS-SPD-MSGID
+			  1  2	3  4  5  6
+             */
+		rt_kprintf("\r\n Rada_disp:%s",TX_33BUF);
+		TX_33BUF[strlen(TX_33BUF)]=0x0D;
+		TX_33BUF[strlen(TX_33BUF)]=0x0A;
 		//strcat(LORA_RUN.Tx_Disp,"\r\n");
-	    Lora_Tx(LORA_RUN.Tx_Disp); 
+	    Lora_Tx(TX_33BUF); 
     }
-	//--- 送显示  ----
-    //------------------------------------
-    Menu_txt_state = 6;
-    pMenuItem = &Menu_TXT;
-    pMenuItem->show();
-    //pMenuItem->timetick( 10 );
-   // pMenuItem->keypress( 10 );
-    //--------------------------------------
-
 	
 }
 
@@ -281,34 +170,173 @@ void LoRA_TX_Process(void)
 {
    if(LORA_RUN.SD_Enable==1)
    	{
-        Lora_const_style_stuff();
-		LORA_RUN.MSG_ID++;
+		LORA_RUN.TX_MSG_ID++;		
+        Lora_const_style_stuff(); 
         LORA_RUN.SD_Enable=0;
+		rt_thread_delay(3);
+   	}
+   else
+    if(LORA_RUN.SD_check_Enable==1)
+   	{
+       Lora_inspect_stuff();
+       LORA_RUN.SD_check_Enable=0;
+	   LORA_RUN.SD_waitACK_Flag=1;    //发送了等待应答 
+	   rt_thread_delay(3);
+   	}
+	else            //  准格尔测试  -----------
+   	if(LORA_RUN.test_send_flag==1)
+   	{
+   	   lora_testack_stuff();
+       LORA_RUN.test_send_flag=0;
+	   rt_thread_delay(3);
    	}
 
 }
 
 
+u8  lora_tts_decode(u8* orgstr)
+{   
+    u8   inlen=strlen(orgstr),write_len=0;
+	u8   hour_in,min_in,second_in,spd_in;
+	u32  msgid_in=0;
+       /*      发送消息格式                 
+			 EE-HH-MM-SS-SPD-MSGID
+			  1  2	3  4  5  6
+             */
+    if(inlen<15)     
+		return true;
+   if((orgstr[2]=='-')&&(orgstr[5]=='-')&&(orgstr[8]=='-')&&(orgstr[11]=='-'))
+   	{
+       
+	
+	   sscanf(orgstr+6, "%u-%u-%u-%u-%u", (u32 *)&hour_in, (u32 *)&min_in, (u32 *)&second_in, (u32 *)&spd_in,(u32 *)&msgid_in);
+	  // rt_kprintf("\r\n Printout:    %d+%d+%d=%d=%d \r\n",hour_in,min_in,second_in,spd_in,msgid_in);
+
+        //  判断来源消息ID 的情况 
+       if(LORA_RUN.RX_MSG_ID==msgid_in)
+       	{
+            rt_kprintf("\r\n  收到重复ID的消息, 重复ID=%d \r\n",msgid_in);
+			 return true;
+       	}
+	   else
+         {
+             LORA_RUN.RX_MSG_ID=msgid_in;
+
+	   	 }	 
+	   
+	  
+        memset(LORA_RUN.Play_str,0,sizeof(LORA_RUN.Play_str));
+        
+		strcat(LORA_RUN.Play_str,"请注意:"); 
+        write_len=strlen(LORA_RUN.Play_str);
+
+       
+        	
+		#if  1
+        //   RS  RX     S1   X1   ES  EX   
+         if(orgstr[3]=='S')
+            strcat(LORA_RUN.Play_str+write_len,"上行有机车通过,");      
+		 else
+		 if(orgstr[3]=='X')	
+		 	strcat(LORA_RUN.Play_str+write_len,"下行有机车通过,");
+         else 
+		 if(orgstr[3]=='R')	
+         {
+         	   if(orgstr[4]=='S')
+                   strcat(LORA_RUN.Play_str+write_len,"上行有机车通过,");      
+		       else
+		       if(orgstr[4]=='X')	
+		 	       strcat(LORA_RUN.Play_str+write_len,"下行有机车通过,");
+         }
+		 else
+		  if(orgstr[3]=='E')	
+         {
+         	   if(orgstr[4]=='S')
+                   strcat(LORA_RUN.Play_str+write_len,"上行有机车通过,");      
+		       else
+		       if(orgstr[5]=='X')	
+		 	       strcat(LORA_RUN.Play_str+write_len,"下行有机车通过,");
+         }	
+ 
+        write_len=strlen(LORA_RUN.Play_str); 
+		sprintf(LORA_RUN.Play_str+write_len,"车速%d公里每小时,请及时避让,消息序号%d",spd_in,msgid_in);
+
+
+        //  更新显示信息
+         if(Menu_Number!=1)
+		 {
+		   LCD_DISP_Clear();
+		   rt_kprintf("\r\n 其他界面下有消息来了");
+         }    
+		
+        pMenuItem = &Menu_1_Idle;
+        pMenuItem->show();
+		memset(LORA_RUN.ComeDirectStr,0,sizeof(LORA_RUN.ComeDirectStr));
+		memcpy(LORA_RUN.ComeDirectStr,LORA_RUN.Play_str+7,12);
+		rt_kprintf("\r\n dispcontent:%s",LORA_RUN.ComeDirectStr);
+		LORA_RUN.Come_state=1;
+
+		#endif
+
+		
+		//sprintf(LORA_RUN.Play_str)+write_len,"%车速%d公里,消息序号%d",spd_in,msgid_in);
+
+        
+		
+        LORA_RUN.ComeSPD=spd_in;
+		LORA_RUN.RX_MSG_ID=msgid_in;
+
+
+
+
+		
+
+         //   -----  授时----
+        rtc_current.year = 0x17;
+		rtc_current.month = 0x03;
+		rtc_current.day = 0x03;
+		rtc_current.hour =bin2bcd(hour_in);
+		rtc_current.min = bin2bcd(min_in);
+		rtc_current.sec= bin2bcd(second_in);		
+		RTC8564_Set(rtc_current);
+        //----  update  RTC  ---
+          if(SysConf_struct.RTC_updated==0)
+          {
+               SysConf_struct.RTC_updated=1;               
+			   Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
+		  }
+
+		//rt_kprintf("播报信息:%s\r\n",Play_str);
+	    Lora_tts_play_newcome();	
+		LORA_RUN.test_flag=1;    // 准格尔回复应答 
+		TTS_play(LORA_RUN.Play_str);	
+		 
+       return false;
+   	}
+   else
+     return true;
+}
+FINSH_FUNCTION_EXPORT(lora_tts_decode, lora_tts_decode());
+
+
 
 void LORA_Rx_Process(void)
 {
-   u8  iRX;
+   u8  iRX,channel=0;
    u8  rx_in[256];
    u8  Lora_TX[256];
    u8  ack_value=0;
    u32 value_get=0;
-   u16 log_len=0;
+   u16 log_len=0,Addr=0;
 
+ channel=0+19;
+ channel=10;
    
-     /*
-               
-
-         */
-	if(U3_flag)
+	if((U3_flag)&&(Lora_configging==0))
 	{
-		//if((GB19056.workstate == 0)&&(DispContent)) 
-		rt_kprintf("U3Rx:%s", U3_content);
-		//u3_process_YH(U3_content,); 
+		rt_kprintf("\r\nU3Rx:%s", U3_content);
+
+		
 		memset(rx_in,0,sizeof(rx_in));	
 		#if 1
 		sprintf((char *)rx_in, "RX: %c%c%c%c%c%c_%c%c%c%c%c%c  info:", (time_now.year / 10 + 0x30), (time_now.year % 10 + 0x30), (time_now.month / 10 + 0x30), (time_now.month % 10 + 0x30), \
@@ -316,121 +344,140 @@ void LORA_Rx_Process(void)
 				 (time_now.sec/ 10 + 0x30), (time_now.sec% 10 + 0x30));
 		log_len=strlen(rx_in);
 		memcpy(rx_in+log_len,U3_content,U3_content_len);  
+		Lora_WriteLOG(rx_in); 
 		//LoRa_Write_log(rx_in,log_len+U3_content_len);      // Lora_WriteLOG(rx_in);
-		Lora_WriteLOG(rx_in);
+		//Lora_WriteLOG(rx_in);
 		#endif
 		//---------------------------------------
-		 // 中继站  (收到信息后，在当前频点上广播发送)
-		if(SysConf_struct.LORA_TYPE==LORA_RELAYSTAION)   
+
+		 //  巡检 接收判断   XX-ACK
+		if(strncmp(U3_content+2,"-ACK",3)==0)  //  
 		{
-		   rt_thread_delay(30+(SysConf_struct.LORA_Local_ADDRESS%10)*10);//地址不同延时不同
-           memset(Lora_TX,0,sizeof(Lora_TX));    
-		   memcpy(Lora_TX,U3_content,U3_content_len);
-		   strcat(Lora_TX,"\n");	
-           Lora_Tx(Lora_TX); 
-		   memset(LORA_RUN.Tx_Disp,0,sizeof(LORA_RUN.Tx_Disp));	
-		   memcpy(LORA_RUN.Tx_Disp,U3_content,U3_content_len-1); // 去掉 0D 0A 
-		   LORA_RUN.SD_Enable=1;
+           rt_kprintf("\r\n 便携终端收到巡检应答  from:%c%c \r\n",U3_content[0],U3_content[1]); 			
+		   
+           if(LORA_RUN.ACK_index<=4)
+           {   
+                buzzer_onoff(1);
+                memset(Lora_TX,0,sizeof(Lora_TX));
+				sprintf(Lora_TX, "%d.",LORA_RUN.ACK_index+1);
+               //---------------------------------------------------------------
+               /*
+                             Part2：   发送节点名称   RS  RX                      S1               X1                     ES                  EX     
+                                                                                 雷达       上行中继     下行中继   上行道口   下行道口  
+                           */
+               switch(U3_content[0])
+               	{
+                   case 'R':
+				   	          if(U3_content[1]=='S')                                    
+							      memcpy(Lora_TX+2,"上行雷达",8);
+							  else
+							  if(U3_content[1]=='X')	
+                                  memcpy(Lora_TX+2,"下行雷达",8);
+					        break;
+							
+				   case 'S':
+				   	          memcpy(Lora_TX+2,"上行中继",8);
+							  sprintf(Lora_TX+10,"%d",HexValue(U3_content[1]));
+				   	        break;
+							
+				   case 'X':
+				   	          memcpy(Lora_TX+2,"下行中继",8);
+				   	          sprintf(Lora_TX+10,"%d",HexValue(U3_content[1]));
+				   	        break;
+							
+							
+				   case 'E':    
+				   	           if(U3_content[1]=='S')
+                                  memcpy(Lora_TX+2,"上行道口",8);
+							  else
+							  if(U3_content[1]=='X')	
+                                  memcpy(Lora_TX+2,"下行道口",8);
+							  
+				   	        break;
+               	}
+
+			    //memset(LORA_RUN.ACK_INFO[LORA_RUN.ACK_index],0,sizeof(LORA_RUN.ACK_INFO));
+				memcpy(LORA_RUN.ACK_INFO[LORA_RUN.ACK_index],Lora_TX,strlen(Lora_TX));
+
+				rt_kprintf("\r\n 巡检反馈: %s",LORA_RUN.ACK_INFO[LORA_RUN.ACK_index]); 				
+			    LORA_RUN.ACK_index++;
+                delay_ms(200); 
+				buzzer_onoff(0);
+           } 
+		  
 		}
-
-        //   道口播报站
-        if(SysConf_struct.LORA_TYPE==LORA_ENDPLAY)   
+        else
+        //   道口播报站或便携终端
+        if(SysConf_struct.LORA_TYPE==LORA_HANDLE_DEV)   
         {
-           /* 
-		  TDateTime Reg_datetime;
-
-		 
-		  sscanf(U3_content+1, "%u.%u.%u.%u.%u.%u.%u", (u32 *)&Reg_datetime.year, (u32 *)&Reg_datetime.month, (u32 *)&Reg_datetime.day, (u32 *)&Reg_datetime.hour, \
-		  	   (u32 *)&Reg_datetime.min,(u32 *)&Reg_datetime.sec,(u32 *)&LORA_RUN.MSG_ID);
-		  memset(Lora_TX,0,sizeof(Lora_TX));  
-		  sprintf(Lora_TX,"%c20%02d年%d月%d日%d时%d分%d秒,消息挨低%d",U3_content[0],time_now.year, time_now.month,time_now.day,\
-		  	                        time_now.hour,time_now.min,time_now.sec,LORA_RUN.MSG_ID);
-		  rt_kprintf("\r\n TTS_pLay:%s",Lora_TX);
-		  */ 
-          TTS_play(U3_content);
-		  memcpy(rx_in+strlen(rx_in),U3_content,U3_content_len);   
-		   Lora_WriteLOG(rx_in); 
+   
+		  
+		  // 根据格式选择播放信息方式
+		  if(lora_tts_decode(U3_content))
+             rt_kprintf("\r\n 新消息还没播完");//TTS_play(U3_content);
+		  
+		 // memcpy(rx_in+strlen(rx_in),U3_content,U3_content_len);   
+		  // Lora_WriteLOG(rx_in); 
 		  memset(LORA_RUN.Tx_Disp,0,sizeof(LORA_RUN.Tx_Disp));	
 		  memcpy(LORA_RUN.Tx_Disp,U3_content,U3_content_len-1); // 去掉 0D 0A  
-		  LORA_RUN.SD_Enable=1; 
+		 // LORA_RUN.SD_Enable=1; 
         }
-
-        //    雷达监测点
-        //  no  code  here   
 		
-	#if  0	
-        if(strncmp(U3_content,"TTS:",4)==0)
-        {
-           TTS_play(U3_content+4);
-		   memcpy(rx_in+strlen(rx_in),U3_content,U3_content_len);  
-		   Lora_WriteLOG(rx_in);
-		   
-        }
-
-		if(strncmp(U3_content,"DAT:",4)==0)
-        {
-		   memcpy(rx_in+strlen(rx_in),U3_content,U3_content_len);  
-		   Lora_WriteLOG(rx_in);
-        }
-
-		if(strncmp(U3_content,"SET:",4)==0)   // 设置需要一起处理
-		{
-           memcpy(rx_in+strlen(rx_in),U3_content,U3_content_len);  
-		   Lora_WriteLOG(rx_in);
-		   rt_thread_delay(50);
-           //----- judge
-           if(strncmp(U3_content+4,"addr:",5)==0)
-           { 
-              value_get=1;
-              sscanf(U3_content+9,"%d",(u32 *)&value_get);			  
-			  lora_L_addr(value_get);
-      
-           }
-		   if(strncmp(U3_content+4,"channel:",8)==0)
-           {
-             value_get=1; 
-             sscanf(U3_content+12,"%d",(u32 *)&value_get);			  
-			 lora_L_ch(value_get);
-
-           }
-		   if(strncmp(U3_content+4,"baud:",5)==0)
-           {
-              value_get=1;
-              sscanf(U3_content+9,"%d",(u32 *)&value_get);			  
-			  lora_set_baud(value_get);
-
-           }
-		  if(strncmp(U3_content+4,"desc:",5)==0)
-           {
-              value_get=1; 		  
-			  lora_set_desc(U3_content+9);
-
-           }	   
-
-           //  ---- stuff  ack info
-		   memset(ack_str,0,sizeof(ack_str));
-		   if(ack_value==1)
-		   	 strcat(ack_str,"\r\n Set Succed!");
-		   else
-		   	 strcat(ack_str,"\r\n Set Fail!");
-		   sprintf(ack_str+strlen(ack_str),"   Piont Info ADDR=%d ,ChannelNum=%d Desc=%s",SysConf_struct.LORA_Local_ADDRESS,SysConf_struct.LORA_Local_Channel,SysConf_struct.LORA_PointDesc);
-	       Lora_Tx(ack_str); 
-		   
-		}
-		if(strncmp(U3_content,"READ:",5)==0)
-		{
-           memcpy(rx_in+strlen(rx_in),U3_content,U3_content_len);  
-		   Lora_WriteLOG(rx_in);
-		   rt_thread_delay(50);
-           
-		   sprintf(ack_str,"\r\n ACK Point info   ADDR=%d ,ChannelNum=%d Desc=%s  Baud=%d",SysConf_struct.LORA_Local_ADDRESS,SysConf_struct.LORA_Local_Channel,SysConf_struct.LORA_PointDesc,SysConf_struct.LORA_Baud);
-           Lora_Tx(ack_str); 
-		}
-      #endif
 		//--------------------------------------
 		U3_content_len=0;
 		U3_flag=0;
 	}	
+	
+	else
+	if(Lora_configging==1)
+	{
+		if(U3_flag)
+		{
+			  OutPrint_HEX("\r\n===>>>U3Rx:",U3_content,U3_content_len);
+			  if( U3_content[0]==0x4F)
+				   rt_kprintf("\r\n  LORA set ACK");
+		
+			  if( U3_content[0]==0xC0)
+			  {	
+				  rt_kprintf("\r\n  LORA Read ACK OK!");
+			
+				  rt_kprintf("\r\n Setinfo	confirm  Addr=0x%02X%02X airSPD=0x%02X channel(hex)=0x%02X  (DEC)=%d \r\n",U3_content[1],\
+					   U3_content[2],U3_content[3],U3_content[4],U3_content[4]);
+ 
+                   //---------------------------------------------  
+	                Addr=((u16)U3_content[1]<<8)+U3_content[2];
+					channel=U3_content[4];
+                   //---------------------------------------------
+                   if((SysConf_struct.LORA_Local_ADDRESS!=Addr)||(SysConf_struct.LORA_Local_Channel!=channel))
+				    {
+						 SysConf_struct.LORA_Local_ADDRESS=Addr;  
+						 SysConf_struct.LORA_Local_Channel=channel;
+						 SysConf_struct.LORA_SYS_Channel=channel;
+						 Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
+						 rt_kprintf("\r\n 设置修改本机信道参数 \r\n");
+				    }
+                   else
+				   if(channel!=SysConf_struct.LORA_SYS_Channel)
+				   	{
+                        SysConf_struct.LORA_SYS_Channel=channel;
+						 Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
+						 rt_kprintf("\r\n 开机自检修改本机信道参数 \r\n");
+				   	}
+				   
+				    memcpy(Lora_config_CMD,U3_content,6);// 更新当前RAM
+				  
+			  }
+			  
+			  	delay_ms(100);
+				LORA_MD0_LOW;
+				LORA_MD1_LOW;  
+				Lora_configging=0;
+				buzzer_onoff(0);
+				//--------------------------------------
+				U3_content_len=0;
+				U3_flag=0;
+		} 
+	}
 
 }
 
@@ -466,46 +513,86 @@ u16  Protocol_808_Decode_Good(u8 *Instr , u8 *Outstr, u16  in_len) // 解析指定bu
     return decode_len;
 }
 
-void u3_RxHandler(unsigned char rx_data)
+
+
+
+void LORA_RxHandler(unsigned char rx_data)
 {
-#if 0
-    if(U3_flag)
-    {
-        U3_Rx[U3_rxCounter++] = rx_data;
-        if(rx_data == 0x7e)
-        {
-            U3_content_len = Protocol_808_Decode_Good(U3_Rx, U3_content, U3_rxCounter);
 
-            LORA_Rx_Process();
+		if(Lora_configging)
+		{
+		       U3_Rx[U3_rxCounter++]=rx_data;
+       
+					 if(U3_rxCounter>=6)
+					 {
+						 if((U3_Rx[5]==0xC4)&&(U3_Rx[0]==0xC0))
+						 {	 
+							 U3_content_len =6;
+							 memset(U3_content,0,sizeof(U3_content));
+							 memcpy(U3_content,U3_Rx,U3_rxCounter); 				   
+							 U3_flag = 1;
+							 U3_rxCounter = 0;
+						 }
+						 else
+						 {
+						   U3_rxCounter=0;
+						   U3_flag=0;
+						 }
+					 }
+					 else
+					 if(U3_rxCounter==4)
+					 {
+						 if((U3_Rx[0]==0x4F)&&(U3_Rx[1]==0x4B)&&(U3_Rx[2]==0x0D)&&(U3_Rx[3]==0x0A))
+						 {
+							U3_content_len =4;
+							 memset(U3_content,0,sizeof(U3_content));
+							 memcpy(U3_content,U3_Rx,U3_rxCounter); 				   
+							 U3_flag = 1;
+							 U3_rxCounter = 0;
+	 
+						 }
+	 
+					 }	
+                     if((U3_Rx[0]!=0x4F)&&(U3_Rx[0]!=0xC0))
+                     	{
+                     	   U3_flag = 0;
+						   U3_rxCounter = 0;
 
-            U3_flag = 0;
-            U3_rxCounter = 0;
-        }
-
-    }
-    else if((rx_data == 0x7e) && (U3_flag == 0))
-    {
-        U3_Rx[U3_rxCounter++] = rx_data;
-        U3_flag = 1;
-    }
-    else
-        U3_rxCounter = 0;
-#endif
-
-    if( rx_data != 0x0A )
-    {
-        U3_Rx[U3_rxCounter++] = rx_data;
-    }
-    else
-    {
-        U3_flag = 1; 
-		memset(U3_content,0,sizeof(U3_content));
-		memcpy(U3_content,U3_Rx,U3_rxCounter);
-		U3_content_len=U3_rxCounter;
-		U3_rxCounter=0; 
-		//LORA_Rx_Process(); 
-    }
-
+                     	}					 
+						 
+		  }
+	 else
+     {
+			
+		    if( rx_data != 0x0A )
+		    {
+		        U3_Rx[U3_rxCounter++] = rx_data;
+				if(U3_rxCounter>=29)  //  addr  2 byte  ch 1byte  29 byte max
+					{
+					    U3_rxCounter=0; // clear
+					    U3_content_len=0;
+				        U3_flag=0;               
+					}
+		    }
+		    else
+		    {
+		      if(U3_rxCounter<4)   // 长度不合法
+		      	{
+		      	  U3_rxCounter=0;  // clear
+		          U3_content_len=0;
+				  U3_flag=0;
+		      	}
+			   else
+		       {
+			        U3_flag = 1; 
+					memset(U3_content,0,sizeof(U3_content));
+					memcpy(U3_content,U3_Rx,U3_rxCounter);
+					U3_content_len=U3_rxCounter;
+					U3_rxCounter=0; 
+		      	}
+		    }
+	
+     }
 }
 
 void Device_UsrSerial_putc(char c)
@@ -524,6 +611,16 @@ void u3_txdata(u8* txStr, u16 tx_len)
    rt_device_write(&Device_UsrSerial, 0, ( const void *)txStr, (rt_size_t) tx_len);
 }
 FINSH_FUNCTION_EXPORT(u3_txdata, u3_txdata(str,len));
+void Lora_channel(u8  channel)
+{
+   
+   rt_kprintf("\r\n System Channel =0x%02X    <=>  %d  ",channel,channel);
+   SysConf_struct.LORA_SYS_Channel=channel;
+   SysConf_struct.LORA_dest1_Channel=channel;
+   Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct)); 
+
+}
+FINSH_FUNCTION_EXPORT(Lora_channel,Lora_channel(u8 type));
 
 
 void lora_mode(u8 value)
@@ -543,14 +640,182 @@ void lora_mode(u8 value)
 }
 FINSH_FUNCTION_EXPORT(lora_mode, lora_mode(value));
 
-void lora_send(void)
+void lora_send(u32 ID,u8  SPD)
 {
-  rt_kprintf("\r\n lora 命令发送消息");
-  LORA_RUN.SD_Enable=1;
-  LORA_RUN.HandsendFlag=1;
+   rt_kprintf("\r\n 便携台  lora 命令发送消息");
+   LORA_RUN.SD_Enable=1;
+  
+   _485_speed=SPD;
+   	LORA_RUN.TX_MSG_ID=ID;  
 }
-FINSH_FUNCTION_EXPORT(lora_send, lora_send());
+FINSH_FUNCTION_EXPORT(lora_send, lora_send(ID,SPD));
 
+void lora_sd_check(void)
+{
+   rt_kprintf("\r\n 便携台  发送巡检消息");
+   LORA_RUN.SD_check_Enable=1;
+}
+FINSH_FUNCTION_EXPORT(lora_sd_check, lora_sd_check());
+
+
+void  loramodule_set(u16 Addr,u8 channel)
+{
+
+  
+    Lora_config_CMD[1]=(Addr>>8);
+	Lora_config_CMD[2]=(u8)Addr;
+	Lora_config_CMD[4]=(u8)channel;
+  
+    LORA_MD0_HIGH;
+	LORA_MD1_HIGH;
+	delay_ms(200);
+	Lora_configging=1;
+	buzzer_onoff(1);
+
+    if((SysConf_struct.LORA_Local_ADDRESS!=Addr)||(SysConf_struct.LORA_Local_Channel!=channel))
+    {
+		 SysConf_struct.LORA_Local_ADDRESS=Addr;  
+		 SysConf_struct.LORA_Local_Channel=channel;
+		 Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
+		 rt_kprintf("\r\n 设置修改本机信道参数 \r\n");
+    }	
+    //---发送配置信息---    
+	rt_device_write(&Device_UsrSerial, 0, ( const void *)Lora_config_CMD,6);   
+	OutPrint_HEX("Lora 发送LORA配置信息",Lora_config_CMD,6);
+}
+FINSH_FUNCTION_EXPORT(loramodule_set, loramodule_set());
+
+void  loramodule_spd(u8 invalue )
+{
+  
+  u32  icounter=160000;
+  u16  ack_add=0;
+
+  switch(invalue)
+  	{
+        case 1:    // 0.3K
+                Lora_config_CMD[3]=0x18;
+		 	    break;
+		case 2:   //  1.2 k
+		        Lora_config_CMD[3]=0x19;
+			    break;
+		case 3:    //  2.4K
+		        Lora_config_CMD[3]=0x1A;
+			    break;
+		default:
+                rt_kprintf("\r\n 输入参数有误");
+			    return;
+  
+
+
+  	} 
+  
+  
+  LORA_MD0_HIGH;
+  LORA_MD1_HIGH;
+  delay_ms(200);
+  Lora_configging=1;
+  buzzer_onoff(1);
+
+  #if 0
+  if((SysConf_struct.LORA_Local_ADDRESS!=Addr)||(SysConf_struct.LORA_Local_Channel!=channel))
+  {
+	   SysConf_struct.LORA_Local_ADDRESS=Addr;	
+	   SysConf_struct.LORA_Local_Channel=channel;
+	   Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
+	   rt_kprintf("\r\n 设置修改本机传输速率参数 \r\n");
+  }  
+  #endif
+  
+  //---发送配置信息---	  
+  rt_device_write(&Device_UsrSerial, 0, ( const void *)Lora_config_CMD,6);	 
+  OutPrint_HEX("Lora 发送LORA配置信息",Lora_config_CMD,6);
+
+}
+FINSH_FUNCTION_EXPORT(loramodule_spd, loramodule_spd());
+
+
+void  loramodule_get(void)
+{
+    u32  icounter=160000;
+	u16  ack_add=0;
+	
+  
+  
+    LORA_MD0_HIGH;
+	LORA_MD1_HIGH;
+	delay_ms(200);
+	Lora_configging=1;
+	buzzer_onoff(1);
+    ////---发送配置信息---    
+	rt_device_write(&Device_UsrSerial, 0, ( const void *)Lora_rd_config,3);   
+	OutPrint_HEX("Lora 读取LORA配置信息",Lora_rd_config,3);
+}
+FINSH_FUNCTION_EXPORT(loramodule_get, loramodule_get());
+
+void rtc_set(u8 *instr)
+{
+  
+  u8   year_in,month_in,day_in,spd_in,hour_in,min_in,second_in;
+
+   buzzer_onoff(1);
+   sscanf(instr, "%u-%u-%u %u:%u:%u", (u32 *)&year_in, (u32 *)&month_in, (u32 *)&day_in,(u32 *)&hour_in, (u32 *)&min_in, (u32 *)&second_in);
+     //   -----  授时----
+        rtc_current.year = bin2bcd(year_in);
+		rtc_current.month =bin2bcd(month_in);
+		rtc_current.day = bin2bcd(day_in);
+		rtc_current.hour =bin2bcd(hour_in);
+		rtc_current.min = bin2bcd(min_in);
+		rtc_current.sec= bin2bcd(second_in);		
+		RTC8564_Set(rtc_current);
+
+		  if(SysConf_struct.RTC_updated==0)
+          {
+               SysConf_struct.RTC_updated=1;               
+			   Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
+		  }
+   buzzer_onoff(0);
+}
+FINSH_FUNCTION_EXPORT(rtc_set, rtc_set(YY-MM-DD HH-MM-SS));
+
+void rtc_get(u8 value)
+{
+  rt_kprintf("\r\n Current RTC   %02X-%02X-%02X %02X:%02X:%02X    valuable=%d    \r\n",rtc_current.BCD_6_Bytes[0],rtc_current.BCD_6_Bytes[1],rtc_current.BCD_6_Bytes[2],rtc_current.BCD_6_Bytes[3],rtc_current.BCD_6_Bytes[4],rtc_current.BCD_6_Bytes[5],SysConf_struct.RTC_updated);
+  if(value)
+  	SysConf_struct.RTC_updated=0;
+  else
+  	SysConf_struct.RTC_updated=1;
+}
+FINSH_FUNCTION_EXPORT(rtc_get, rtc_get);
+
+
+void  Lora_MD_PINS_INIT(void)   
+{
+    GPIO_InitTypeDef        gpio_init;
+
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOE, ENABLE);
+
+    gpio_init.GPIO_Mode = GPIO_Mode_AF;
+    gpio_init.GPIO_Speed = GPIO_Speed_100MHz;
+    gpio_init.GPIO_OType = GPIO_OType_PP;
+    gpio_init.GPIO_PuPd  = GPIO_PuPd_NOPULL;
+
+    //	OUT
+    //----------- LORA    MD0    PB8------------------
+    gpio_init.GPIO_Pin	= LORA_MD0_PIN;   //------LORA MD0
+    gpio_init.GPIO_Mode	= GPIO_Mode_OUT;
+    GPIO_Init(LORA_MD0_PORT, &gpio_init);
+    
+    
+    // ------------LORA  MD1   PE7 ---------------
+    gpio_init.GPIO_Pin	= LORA_MD1_PIN;   //------LORA MD1
+    gpio_init.GPIO_Mode	= GPIO_Mode_OUT;
+    GPIO_Init(LORA_MD1_PORT, &gpio_init);
+
+    // ----  正常使用情况下 ----
+	LORA_MD0_LOW;
+	LORA_MD1_LOW;
+}
 
 
 
@@ -588,7 +853,7 @@ static rt_err_t   Device_UsrSerial_init( rt_device_t dev )
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
     NVIC_InitStructure.NVIC_IRQChannelSubPriority = 5;
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
+    NVIC_Init(&NVIC_InitStructure); 
 
 
     //   4.  uart  Initial
@@ -601,10 +866,11 @@ static rt_err_t   Device_UsrSerial_init( rt_device_t dev )
     USART_Init(USART3, &USART_InitStructure);
 
     /* Enable USART */
-    USART_Cmd(USART3, ENABLE);
-    USART_ITConfig(USART3, USART_IT_RXNE, ENABLE);
-
-
+    USART_Cmd(USART3,ENABLE);
+	
+    USART_ITConfig(USART3,USART_IT_RXNE, ENABLE);
+    delay_ms(8);
+    memset(LORA_RUN.Tx_Disp,0x20,sizeof(LORA_RUN.Tx_Disp));  //空格
     return RT_EOK;
 }
 

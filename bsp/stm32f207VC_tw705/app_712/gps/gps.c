@@ -16,1017 +16,488 @@
 #include <rtdevice.h>
 
 #include "stm32f2xx.h"
+#include "stm32f2xx_i2c.h"
 #include "gps.h"
 #include "App_moduleConfig.h"
 
 #include <finsh.h>
 
-#define GPS_PWR_PORT	GPIOD
-#define GPS_PWR_PIN		GPIO_Pin_10
 
-#define GPS_GPIO_TX			GPIO_Pin_12 // PC12
-#define GPS_GPIO_RX			GPIO_Pin_2  // PD2
-#define GPS_GPIO_TxC		GPIOC
-#define GPS_GPIO_RxD		GPIOD
-#define RCC_APBPeriph_UART5 RCC_APB1Periph_UART5
-
-/*声明一个gps设备*/
-static struct rt_device dev_gps;
-
-/*串口接收缓存区定义*/
-#define UART5_RX_SIZE 256
-
-#define GPS_RAWINFO_SIZE    2048
-#define  NMEA_SEGlength     128
+void RTC8564_Set(RTCTIME time);
 
 
-#define  GPS_V_LIMIT         500  // 500s       
+RTCTIME rtc_current;
+u8       Reg_common[8];
+u8  rtc_tmp[10];
+u8   Get_RTC_enableFlag=0;
 
-typedef __packed struct
+
+unsigned bcd2bin(unsigned char val)
 {
-    uint16_t	wr;
-    uint8_t		body[UART5_RX_SIZE];
-} LENGTH_BUF;
-
-static LENGTH_BUF uart5_rxbuf;
-static LENGTH_BUF gps_rx;
-//static uint8_t	uart5_rxbuf[UART5_RX_SIZE];	/*预留前两个字节，保存长度*/
-//static uint16_t uart5_rxbuf_wr = 2;
-
-/*gps原始信息数据区定义*/
-static struct rt_messagequeue	mq_gps;
-
-uint8_t							flag_bd_upgrade_uart = 0;
-
-//---------------------
-static   u8   gps_rawinfo[GPS_RAWINFO_SIZE];
-//---------------------
-
-
-
-//==========================
-
-/*  RT_thread    应用相关*/
-u8	 systemTick_TriggerGPS = 1; //	触发系统时间定时发送GPS标志    默认启动本地定时
-u16  systemTick_trigGPS_counter = 0; //触发系统定时下的时间计数器
-
-
-const char BD_MODE[] = {"$CCSIR,1,0*49\r\n"};
-const char GPS_MODE[] = {"$CCSIR,2,0*4A\r\n"};
-const char GPSBD_MODE[] = {"$CCSIR,3,0*4B\r\n"};
-
-GPSSTATUS    GpsStatus;
-GPS_ABNORMAL   Gps_Exception;  // gps  模块异常处理
-POS_ASC Posit_ASCII;  // 位置信息 ASCII
-//==========================
-static rt_err_t dev_gps_init( rt_device_t dev );
-
-
-void GPS_Abnormal_init(void)
-{
-    Gps_Exception.current_datacou = 0;
-    Gps_Exception.no_updateTimer = 0;
-    Gps_Exception.last_datacou = 0;
-    Gps_Exception.GPS_Rst_counter = 0;
-    Gps_Exception.Reset_gps = 0;
-    Gps_Exception.GPS_V_counter = 0;
+	return (val & 0x0f) + (val >> 4) * 10;
 }
 
-//    GPS  长期保持 V  处理
-void  GPS_Keep_V_timer(void)
+unsigned char bin2bcd(unsigned val)
 {
-    if(((Warn_Status[3] & 0x60) == 0x00) && (UDP_dataPacket_flag == 0x03) ) // 在天线状态正常情况下 判断V
-    {
-        Gps_Exception.GPS_V_counter++;
-        if(Gps_Exception.GPS_V_counter == GPS_V_LIMIT)
-        {
-            gps_onoff(0);
-        }
-        if(Gps_Exception.GPS_V_counter >= (GPS_V_LIMIT + 3))
-        {
-            gps_onoff(1);  // Gps module Power on	GPS 模块开电
-            Gps_Exception.GPS_V_counter = 0;
-            //  rt_kprintf("\r\n gps long v  recover power\r\n");
-        }
-    }
-    else if(UDP_dataPacket_flag == 0x02)
-    {
-        Gps_Exception.GPS_V_counter = 0;
-    }
-
+	return ((val / 10) << 4) + val % 10;
 }
 
-void  GPS_Abnormal_process(void)
-{
-    //----------GPS 异常情况处理-----------------------
-    Gps_Exception.no_updateTimer++;
-    if( Gps_Exception.no_updateTimer >= 300)
-    {
-        Gps_Exception.no_updateTimer = 0;
-        if(Gps_Exception.Reset_gps == 1)
-        {
-            Gps_Exception.Reset_gps = 0;
-            gps_onoff(1); // GPS power on
-            Gps_Exception.GPS_Rst_counter++;
-            if(Gps_Exception.GPS_Rst_counter > 5)
-            {
-                Gps_Exception.GPS_Rst_counter = 0;
-            }
-        }
-        else
-        {
-            if(Gps_Exception.current_datacou - Gps_Exception.last_datacou < 300)
-            {
-                gps_onoff(0); //GPS  power off
-                Gps_Exception.Reset_gps = 1;
-                //---------断电就置为不定位 -----------------
-                Car_Status[3] &= ~0x02; //Bit(1)
-                ModuleStatus &= ~Status_GPS;
-                GPS_getfirst = 0;
-                //-------------------------------------------
-            }
-            else
-            {
-                Gps_Exception.last_datacou = 0;
-                Gps_Exception.current_datacou = 0;
-            }
-        }
-    }
 
+void RTC_8564_IIC_INIT(void)
+{
+      GPIO_InitTypeDef        gpio_init;
+	  I2C_InitTypeDef i2c_config;
+
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
+ 
+
+	GPIO_PinAFConfig(GPIOB,GPIO_PinSource6, GPIO_AF_I2C1);
+    GPIO_PinAFConfig(GPIOB,GPIO_PinSource7, GPIO_AF_I2C1);
+
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C1,ENABLE); 
+
+    gpio_init.GPIO_Mode = GPIO_Mode_AF;
+    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+    gpio_init.GPIO_OType = GPIO_OType_OD;
+    gpio_init.GPIO_PuPd  = GPIO_PuPd_NOPULL;
+
+    gpio_init.GPIO_Pin	 = GPIO_Pin_6|GPIO_Pin_7;	 
+    GPIO_Init(GPIOB, &gpio_init);
+
+	
+    //------------------- PB5-----------------------------
+    gpio_init.GPIO_Pin	 = RTC_8546_INT_PIN;			
+    gpio_init.GPIO_Mode  = GPIO_Mode_IN;
+    GPIO_Init(RTC_8546_INT_PORT, &gpio_init);
+
+
+    i2c_config.I2C_ClockSpeed = 400000;
+    i2c_config.I2C_Mode = I2C_Mode_I2C;
+    i2c_config.I2C_DutyCycle = I2C_DutyCycle_2;
+    i2c_config.I2C_OwnAddress1=0;        
+    i2c_config.I2C_Ack = I2C_Ack_Enable;
+    i2c_config.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
+
+    I2C_Init(I2C1,&i2c_config);
+    I2C_Cmd(I2C1,ENABLE);
 
 
 
 }
 
 
-//$GPRMC,063835.00,A,3909.11361,N,11712.50398,E,0.192,150.85,110305,,,A*64
-//$GPRMC,063835.00,A,4000.81000,N,11556.40000,E,0.192,150.85,110305,,,A*64
-//$GNRMC,125146.000,V,0000.0000,N,00000.0000,E,0.0,,080614,,E,N*0D
-
-
-u8 Process_RMC(u8 *packet)
+unsigned char I2C_ReadOneByte(unsigned char addr)
 {
-    u8  CommaCount = 0, iCount = 0, k = 0;
-    u8  tmpinfo[15]; // 新版本的北斗模块经度更高了
-    //$GNRMC,085928.00,A,3920.020977,N,11744.385579,E,0.7,,020113,,,A*67
-    //$GNRMC,090954.00,A,3920.024800,N,11744.384457,E,0.3,,020113,,,A*65
-    //           11744.385579
-    u8  hour = 0, min = 0, sec = 0, fDateModify = 0;
-
-
-	uint8_t  year = 0, mon = 0, day = 0;
-	TDateTime now, now_bak;
-	int i = 0;
-				
-
-    //-------------------------------------------------------------------
-    while (*packet != 0)
-    {
-        if(*packet == ',')
-        {
-            CommaCount++;
-            packet++;
-            if(iCount == 0) continue;
-            switch(CommaCount)
-            {
-            case 2: //时间
-                //systemTickGPS_Set();
-                if ( iCount < 6 ) 	  //  格式检查
-                {
-                    return false;
-                }
-
-                if((tmpinfo[0] >= 0x30) && (tmpinfo[0] <= 0x39) && (tmpinfo[1] >= 0x30) && (tmpinfo[1] <= 0x39) && (tmpinfo[2] >= 0x30) && (tmpinfo[2] <= 0x39) && (tmpinfo[3] >= 0x30) && (tmpinfo[3] <= 0x39) && (tmpinfo[4] >= 0x30) && (tmpinfo[4] <= 0x39) && (tmpinfo[5] >= 0x30) && (tmpinfo[5] <= 0x39))
-                    ;
-                else
-                {
-                    return false;
-                }
-
-
-                hour = (tmpinfo[0] - 0x30) * 10 + (tmpinfo[1] - 0x30) + 8;
-                min = (tmpinfo[2] - 0x30) * 10 + (tmpinfo[3] - 0x30);
-                sec = (tmpinfo[4] - 0x30) * 10 + (tmpinfo[5] - 0x30);
-                if(hour > 23)
-                {
-                    fDateModify = 1;
-                    hour -= 24;
-                    tmpinfo[0] = (hour / 10) + '0';
-                    tmpinfo[1] = (hour % 10) + '0';
-                }
-                //systemTickGPS_Clear();
-                break;
-            case 3://数据有效性
-				 if ( tmpinfo[0] == 'V' || tmpinfo[0] == 'v' )
-				    {
-				        UDP_dataPacket_flag = 'V';
-				    }
-				    else if ( tmpinfo[0] == 'A' || tmpinfo[0] == 'a' )
-				    {
-				        UDP_dataPacket_flag =  'A';
-				    }
-                break;
-            case 4://纬度
-                break;
-            case 5://纬度半球
-                break;
-            case 6://经度
-                break;
-            case 7://经度半球
-                break;
-            case 8://速率
-                break;
-            case 9://方向
-
-                break;
-            case 10://日期
-                if((tmpinfo[0] >= 0x30) && (tmpinfo[0] <= 0x39) && (tmpinfo[1] >= 0x30) && (tmpinfo[1] <= 0x39) && (tmpinfo[2] >= 0x30) && (tmpinfo[2] <= 0x39) && (tmpinfo[3] >= 0x30) && (tmpinfo[3] <= 0x39) && (tmpinfo[4] >= 0x30) && (tmpinfo[4] <= 0x39) && (tmpinfo[5] >= 0x30) && (tmpinfo[5] <= 0x39))
-                    ;
-                else
-                    break;
-                //---------
-          
-				
-				   day = (( tmpinfo[0] - 0x30 ) * 10 ) + ( tmpinfo[1] - 0x30 );
-				   mon = (( tmpinfo[2] - 0x30 ) * 10 ) + ( tmpinfo[3] - 0x30 );
-				   year = (( tmpinfo[4] - 0x30 ) * 10 ) + ( tmpinfo[5] - 0x30 );
-				
-				   if(fDateModify)
-				   {
-					   //sscanf(tmpinfo,"%2d%2d%2d",&day,&mon,&year);
-					   day++;
-					   if(mon == 2)
-					   {
-						   if ( ( year % 4 ) == 0 )
-						   {
-							   if ( day == 30 )
-							   {
-								   day = 1;
-								   mon++;
-							   }
-						   }
-						   else if ( day == 29 )
-						   {
-							   day = 1;
-							   mon++;
-						   }
-					   }
-					   else if (( mon == 4 ) || ( mon == 6 ) || ( mon == 9 ) || ( mon == 11 ))
-					   {
-						   if ( day == 31 )
-						   {
-							   mon++;
-							   day = 1;
-						   }
-					   }
-					   else
-					   {
-						   if ( day == 32 )
-						   {
-							   mon++;
-							   day = 1;
-						   }
-						   if( mon == 13 )
-						   {
-							   mon = 1;
-							   year++;
-						   }
-					   }
-				   }
-
-				//--------
-				time_now.year=year;
-				time_now.month=mon;
-				time_now.day=day;
-
-				time_now.hour=hour;
-				time_now.min=min;
-				time_now.sec=sec;
-                break;
-            default:
-                break;
-            }
-            iCount = 0;
-        }
-        else
-        {
-            tmpinfo[iCount++] = *packet++;
-            if(iCount < 15)
-                tmpinfo[iCount] = 0;
-            if(iCount > 15)
-            {
-                //return CommaCount;
-                break;
-            }
-        }
-    }
-    return CommaCount;
-}
-
-//----------------
-u8 Process_GSA(u8 *packet)
-{
-
-    return true;
-}
-//---------------------
-u8 Process_GGA(u8 *packet)
-{
-    //检查数据完整性,执行数据转换
-    u8 CommaCount = 0, iCount = 0;
-    u8  tmpinfo[12];
-    float dop;
-    float Hight1 = 0, Hight2 = 0;
-    while (*packet != 0)
-    {
-        if(*packet == ',')
-        {
-            CommaCount++;
-            packet++;
-            if(iCount == 0)
-            {
-                if(CommaCount == 8)
-                    Satelite_num = 0;
-                continue;
-            }
-            switch(CommaCount)
-            {
-            case 8:
-                //搜到星的个数$GPGGA,045333,3909.1849,N,11712.3104,E,1,03,4.3,20.9,M,-5.4,M,,*66
-                Satelite_num = ( tmpinfo[0] - 0x30 ) * 10 + ( tmpinfo[1] - 0x30 );
-                break;
-
-            case 9:
-                dop = atof((char *)tmpinfo);
-
-                HDOP_value = dop;		 //  Hdop 数值
-                break;
-            case 10:// MSL altitude
-                Hight1 = atof((const char *)tmpinfo);
-                break;
-            case 12:// Geoid Separation
-                Hight2 = atof((const char *)tmpinfo);
-                GPS_Hight = (u16)(Hight1 + Hight2);
-				if(GPS_Hight>6000)
-					  GPS_Hight=6000; 
-                //printf("\r\n 当前海拔高度为:%f,  %f ,%d m\r\n",Hight1,Hight2,GPS_Hight);
-                break;
-            default:
-                break;
-            }
-            iCount = 0;
-        }
-        else
-        {
-            tmpinfo[iCount++] = *packet++;
-            tmpinfo[iCount] = 0;
-            if(iCount > 12)
-                return CommaCount;
-        }
-    }
-    return CommaCount;
-
-
-}
-//------------------------------------------------------------------
-void  GPS_ANTENNA_status(void)     //  天线开短路状态检测
-{
-    // 2013-4-20    更改PCB   用PD4 : GPS 天线开路      PB6 : GPS  天线短路
-    if(GPIO_ReadOutputDataBit(GPS_PWR_PORT, GPS_PWR_PIN )) // 在GPS 有电时有效
-    {
-        if(GPIO_ReadInputDataBit(GPIOD, GPIO_Pin_4)) //开路检测	1:天线开路
-        {
-            if(OutGPS_Flag == 0)
-            {
-                if((Warn_Status[3] & 0x20) == 0)
-                    rt_kprintf("\r\n	ANT 开路");
-                Warn_Status[3] |= 0x20;
-                Warn_Status[3] &= ~0x40;
-                GpsStatus.Antenna_Flag = 1;
-                Gps_Exception.GPS_circuit_short_couter = 0;
-                self_checking_Antenna = 1;
-                self_checking_result = 2;
-            }
-        }
-        else if(!GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_6)) //短路检测  0:天线短路
-        {
-            if(( Warn_Status[3] & 0x40) == 0)
-            {
-                Gps_Exception.GPS_short_keepTimer++;
-                if( Gps_Exception.GPS_short_keepTimer > 200)
-                {
-                    Gps_Exception.GPS_short_keepTimer = 0; // clear
-                    if(GB19056.workstate == 0)
-                        rt_kprintf("\r\n	ANT 短路");
-                    // rt_kprintf("\r\n	发现短路，立即断开GPS电源");
-                    GPIO_ResetBits( GPS_PWR_PORT, GPS_PWR_PIN );
-                    self_checking_Antenna = 2;
-                    self_checking_result = 2;
-
-                    //------------------------------------------
-                    Gps_Exception.GPS_circuit_short_couter++;
-                    if(Gps_Exception.GPS_circuit_short_couter >= 4)
-                    {
-                        Gps_Exception.GPS_short_checkFlag = 2;
-                        Gps_Exception.GPS_short_timer = 0; // clear
-                        rt_kprintf("\r\n   短路检测大于3次 ，一直断开GPS 电源\r\n");
-
-                        //	断开 GPS 电源后，得启动 本地定时 ，否则人家说丢包.NND
-                        /*
-                           */
-                    }
-                    else
-                    {
-                        Gps_Exception.GPS_short_checkFlag = 1;
-                    }
-                    //-----------------------------------------------------
-
-                    // set  flag
-                    Warn_Status[3] &= ~0x20;
-                    Warn_Status[3] |= 0x40;
-                    //------------------------------------------
-                }
-            }
-
-
-        }
-        else
-        {
-            if(Warn_Status[3] & 0x20)
-                rt_kprintf("\r\n	天线恢复正常");
-            Warn_Status[3] &= ~0x20;
-            Warn_Status[3] &= ~0x40;
-            GpsStatus.Antenna_Flag = 0;
-            Gps_Exception.GPS_circuit_short_couter = 0;
-        }
-
-    }
-}
-
-void  GPS_short_judge_timer(void)
-{
-    if(Gps_Exception.GPS_short_checkFlag == 1)
-    {
-        Gps_Exception.GPS_short_timer++;
-        if(Gps_Exception.GPS_short_timer > 100)
-        {
-            //   关电 后开启
-            Gps_Exception.GPS_short_timer = 0;
-            gps_onoff(1);
-            rt_kprintf("\r\n	 再次开启GPS模块\r\n");
-            //---------------期待模块正常-----------
-            Warn_Status[3] &= ~0x20;
-            Warn_Status[3] &= ~0x40;
-            //----------------
-            Gps_Exception.GPS_short_checkFlag = 0;
-        }
-    }
-
-
-
-}
-
-//--------------------------------------------------------------------------------
-void  GPS_Rx_Process(u8 *Gps_str , u16  gps_strLen)
-{
-    u8  Gps_instr[160];
-    u8  GPRMC_Enable = 0;
-
-    memset(Gps_instr, 0, sizeof(Gps_instr));
-    memcpy(Gps_instr, Gps_str, gps_strLen);
-
-    if(GpsStatus.Raw_Output == 1)
-        rt_kprintf((const char *)Gps_instr);       // rt_kprintf((const char*)Gps_str);
-
-    //----------------  Mode  Judge    ---------------------
-    if(strncmp((char *)Gps_instr, "$GNRMC,", 7) == 0)
-    {
-        GpsStatus.Position_Moule_Status = 3;
-        GPRMC_Enable = 1;
-        Car_Status[1] &= ~0x0C; // clear bit3 bit2
-        Car_Status[1] |= 0x0C; // BD+GPS  mode	1100
-    }
-    if(strncmp((char *)Gps_instr, "$BDRMC,", 7) == 0)
-    {
-        GpsStatus.Position_Moule_Status = 1;
-        GPRMC_Enable = 1;
-        Car_Status[1] &= ~0x0C; // clear bit3 bit2
-        Car_Status[1] |= 0x08; // BD mode	1000
-    }
-    if(strncmp((char *)Gps_instr, "$GPRMC,", 7) == 0)
-    {
-        GpsStatus.Position_Moule_Status = 2;
-        GPRMC_Enable = 1;
-        Car_Status[1] &= ~0x0C; // clear bit3 bit2      1100
-        Car_Status[1] |= 0x04; // Gps mode   0100
-    }
-
-    //--------------------------------------------------
-    //----------- Pick up useful  --------------------------
-    if(GPRMC_Enable == 1)
-    {
-        Process_RMC(Gps_instr);
-        Gps_Exception.current_datacou += gps_strLen;
-        return;
-    }
-    if((strncmp((char *)Gps_instr, "$GPGGA,", 7) == 0) || (strncmp((char *)Gps_instr, "$GNGGA,", 7) == 0) || (strncmp((char *)Gps_instr, "$BDGGA,", 7) == 0))
-    {
-        Process_GGA(Gps_instr);
-        return;
-    }
-    if((strncmp((char *)Gps_instr, "$GPGSA,", 7) == 0) || (strncmp((char *)Gps_instr, "$BDGSA,", 7) == 0) || (strncmp((char *)Gps_instr, "$GNGSA,", 7) == 0))
-    {
-        Process_GSA(Gps_instr);
-        return;
-    }
+       unsigned char res=0;
+       uint32_t I2C_Timeout=I2C_TIMEOUT;
+   
+	   while(I2C_GetFlagStatus(I2C1, I2C_FLAG_BUSY)) // Added by Najoua	27/08/2008	
+	   	{ 
+	         if((I2C_Timeout--) == 0)
+	               return 0;
+	   	}
+	   
+       I2C_GenerateSTART(I2C1, ENABLE);      
+       while(!I2C_CheckEvent(I2C1,I2C_EVENT_MASTER_MODE_SELECT));
+      
+       I2C_Send7bitAddress(I2C1,RTC_WR,I2C_Direction_Transmitter);
+       while(!I2C_CheckEvent(I2C1,I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED));
+ 
+      
+       I2C_SendData(I2C1,addr);
+       while(!I2C_CheckEvent(I2C1,I2C_EVENT_MASTER_BYTE_TRANSMITTED));
+ 
+       I2C_GenerateSTART(I2C1,ENABLE);
+       while(!I2C_CheckEvent(I2C1,I2C_EVENT_MASTER_MODE_SELECT));
+      
+       I2C_Send7bitAddress(I2C1,RTC_WR,I2C_Direction_Receiver);
+       while(!I2C_CheckEvent(I2C1,I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED));
+      
+       while(!I2C_CheckEvent(I2C1,I2C_EVENT_MASTER_BYTE_RECEIVED));
+       
+       res=I2C1->DR;
+       
+        I2C_AcknowledgeConfig(I2C1, DISABLE);//must
+       
+       I2C_GenerateSTOP(I2C1,ENABLE);
+       return res;      
+      
 }
 
 
-//================================================
-
-
-
-void GpsIo_Init(void)
+unsigned char I2C_Read(unsigned char addr,unsigned char *buf,unsigned char num)
 {
-    GPIO_InitTypeDef	GPIO_InitStructure;
-    NVIC_InitTypeDef	NVIC_InitStructure;
+       while(num--)
+       {           
+              *buf++=I2C_ReadOneByte(addr++);
+                //delay(100);  
+       }           
+      
+       return 0;     
+      
+}
 
-    RCC_AHB1PeriphClockCmd( RCC_AHB1Periph_GPIOC, ENABLE );
-    RCC_AHB1PeriphClockCmd( RCC_AHB1Periph_GPIOD, ENABLE );
-    RCC_APB1PeriphClockCmd( RCC_APB1Periph_UART5, ENABLE );
+ 
+ static unsigned char I2C_WriteOneByte(unsigned char addr,unsigned char value)
+ {	  
+		 uint32_t I2C_Timeout=I2C_TIMEOUT;
+   
+	   while(I2C_GetFlagStatus(I2C1, I2C_FLAG_BUSY)) // Added by Najoua	27/08/2008	
+	   	{ 
+	         if((I2C_Timeout--) == 0)
+	               return 0;
+	   	}
+	   
+		I2C_GenerateSTART(I2C1, ENABLE);	  
+		while(!I2C_CheckEvent(I2C1,I2C_EVENT_MASTER_MODE_SELECT));
+	   
+		I2C_Send7bitAddress(I2C1,RTC_WR,I2C_Direction_Transmitter);
+		while(!I2C_CheckEvent(I2C1,I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED));
+  
+		I2C_SendData(I2C1,addr);
+		while(!I2C_CheckEvent(I2C1,I2C_EVENT_MASTER_BYTE_TRANSMITTED));
+	   
+		I2C_SendData(I2C1,value);
+		while(!I2C_CheckEvent(I2C1,I2C_EVENT_MASTER_BYTE_TRANSMITTED));
+	   
+		I2C_GenerateSTOP(I2C1,ENABLE);
+		return 0;
+ }
+  
+ unsigned char I2C_Write(unsigned char addr,unsigned char *buf,unsigned char num)
+ {
+		unsigned char err=0;
+	   
+		while(num--)
+		{
+			   if(I2C_WriteOneByte(addr++,*buf++))
+			   {
+					  err++;
+			   }
+		}
+		if(err)
+			   return 1;
+		else
+			   return 0; 
+ }
+  
 
-    GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_OUT;
-    GPIO_InitStructure.GPIO_OType	= GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_PuPd	= GPIO_PuPd_NOPULL;
-    GPIO_InitStructure.GPIO_Speed	= GPIO_Speed_50MHz;
 
-    GPIO_InitStructure.GPIO_Pin = GPS_PWR_PIN;
-    GPIO_Init( GPS_PWR_PORT, &GPIO_InitStructure );
-    GPIO_ResetBits( GPS_PWR_PORT, GPS_PWR_PIN );
+//================================
+void I2C_Wrte_Data( u8 WriteAddr, u8* pBuffer,u8 NumByteToWrite)
+{	 
+   uint32_t I2C_Timeout=I2C_TIMEOUT;
+   
+   while(I2C_GetFlagStatus(I2C1, I2C_FLAG_BUSY)) // Added by Najoua	27/08/2008	
+   	{ 
+         if((I2C_Timeout--) == 0)
+               return;
+   	}
+   I2C_GenerateSTART(I2C1, ENABLE);  
+   
+  /* Test on EV5 and clear it */   
+  while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT));    
+  
+  /* Send EEPROM address for write */   
+  I2C_Send7bitAddress(I2C1, RTC_WR, I2C_Direction_Transmitter) ;  
+  
+  /* Test on EV6 and clear it */  
+  while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED));  
+  
+  /* Send the EEPROM's internal address to write to */      
+  I2C_SendData(I2C1, WriteAddr);     
+  /* Test on EV8 and clear it */   
+  while(! I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_TRANSMITTED));   
+  /* While there is data to be written */  
+  while(NumByteToWrite--)     
+  	{    
+  	    /* Send the current byte */   
+		I2C_SendData(I2C1, *pBuffer);    
+		/* Point to the next byte to be written */ 
+		pBuffer++;  
+		/* Test on EV8 and clear it */   
+		while (!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_TRANSMITTED));    
+		}    
+    /* Send STOP condition */   
+  I2C_GenerateSTOP(I2C1, ENABLE); 
 
-    /*uart5 管脚设置*/
-
-    GPIO_InitStructure.GPIO_OType	= GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_PuPd	= GPIO_PuPd_UP;
-    GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_AF;
-    GPIO_InitStructure.GPIO_Speed	= GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_Pin		= GPIO_Pin_12;
-    GPIO_Init( GPIOC, &GPIO_InitStructure );
-
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2;
-    GPIO_Init( GPIOD, &GPIO_InitStructure );
-
-    GPIO_PinAFConfig( GPIOC, GPIO_PinSource12, GPIO_AF_UART5 );
-    GPIO_PinAFConfig( GPIOD, GPIO_PinSource2, GPIO_AF_UART5 );
-
-    /*NVIC 设置*/
-    NVIC_InitStructure.NVIC_IRQChannel						= UART5_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority	= 1;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority			= 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd					= ENABLE;
-    NVIC_Init( &NVIC_InitStructure );
-
-    gps_baud( 9600 );
-    USART_Cmd( UART5, ENABLE );
-    USART_ITConfig( UART5, USART_IT_RXNE, ENABLE );
-
-    GPIO_SetBits( GPIOD, GPIO_Pin_10 );
+}
 
 
-    //------------------- PD9 -----------------------------
-    GPIO_InitStructure.GPIO_Pin	= GPIO_Pin_9;   // 功放
-    GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_OUT;
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
+void I2C_Read_Data(u8 ReadAddr,u8* pBuffer,  u16 NumByteToRead)    
+{	 
+   uint32_t I2C_Timeout=I2C_TIMEOUT;
+//*((u8 *)0x4001080c) |=0x80;		
+while(I2C_GetFlagStatus(I2C1, I2C_FLAG_BUSY)) // Added by Najoua  27/08/2008	 
+	{ 
+         if((I2C_Timeout--) == 0)
+               return;
+   	}
+
+
+/* Send START condition */	 
+I2C_GenerateSTART(I2C1, ENABLE);
+
+//*((u8 *)0x4001080c) &=~0x80;	
+/* Test on EV5 and clear it */	 
+while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT));	 
+
+/* Send EEPROM address for write */  
+I2C_Send7bitAddress(I2C1, RTC_WR, I2C_Direction_Transmitter) ;  
+
+ /* Test on EV6 and clear it */  
+ while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED));   
+ 
+ /* Clear EV6 by setting again the PE bit */  
+ I2C_Cmd(I2C1, ENABLE);	  
+ 
+ /* Send the EEPROM's internal address to write to */  
+ I2C_SendData(I2C1, ReadAddr);		
+ 
+ /* Test on EV8 and clear it */	
+ while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_TRANSMITTED));	  
+ 
+	 /* Send STRAT condition a second time */ 	 
+	 I2C_GenerateSTART(I2C1, ENABLE);   
+	 /* Test on EV5 and clear it */	 
+	 while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT));   
+	 /* Send EEPROM address for read */	 
+	 I2C_Send7bitAddress(I2C1, RTC_WR, I2C_Direction_Receiver);
+	 /* Test on EV6 and clear it */   
+	 while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED) );	
+	 /* While there is data to be read */	
+	 while(NumByteToRead)		
+	 	{ 
+	 	if(NumByteToRead == 1)	
+			{ 
+			/* Disable Acknowledgement */   
+			I2C_AcknowledgeConfig(I2C1, DISABLE);	 
+			/* Send STOP Condition */	
+			I2C_GenerateSTOP(I2C1, ENABLE);	
+			} 
+		/* Test on EV7 and clear it */	 
+		if(I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_RECEIVED))	
+			{			
+			/* Read a byte from the EEPROM */   
+			*pBuffer = I2C_ReceiveData(I2C1);	
+			/* Point to the next location where the byte read will be saved	*/	 
+			pBuffer++;	  
+			/* Decrement the read bytes counter */	
+			NumByteToRead--; 		  
+			}	  
+	  }	 
+	 /* Enable Acknowledgement to be ready for another reception */	 
+	 I2C_AcknowledgeConfig(I2C1, ENABLE);    
+ }  
+
+
+//  ======= RTC   App  ===================
+
+void RTC8564_Init(void)
+{
+	delay_ms(10);
+	rt_kprintf("\r\n---      RTC INIT start");
+	I2C_WriteOneByte(reg_ctr1,0x00); 
+	//禁止中断
+	I2C_WriteOneByte(reg_ctr2,0x00);	
+
+	if(SysConf_struct.RTC_updated==0)
+	{
+		//设置时间2017/3/3 10:50:30 5
+		rtc_current.year = 0x17;
+		rtc_current.month = 0x03;
+		rtc_current.day = 0x03;
+		rtc_current.hour = 0x10;
+		rtc_current.min = 0x11;
+		rtc_current.sec=0x12;
+		
+		RTC8564_Set(rtc_current);
+	}	
+ 
+     
+	//禁止所有的闹钟
+	I2C_WriteOneByte(reg_alarm_min,0x80);	
+	I2C_WriteOneByte(reg_alarm_hour,0x80);	
+	I2C_WriteOneByte(reg_alarm_day,0x80);	
+	I2C_WriteOneByte(reg_alarm_week,0x80);	
+	//禁止时钟引脚输出
+	I2C_WriteOneByte(reg_clk,0x7F);
+	//禁止定时中断
+	I2C_WriteOneByte(reg_timer_ctr,0x7F);
+
+	I2C_WriteOneByte(reg_timer,0x01); 
+
+
+	
+}
+
+
+void RTC8564_Set(RTCTIME time)
+{
+  #ifdef RTC_8564
+	uint8_t getdata=0;
+	I2C_Read_Data(reg_sec,&getdata,1);
+	if((getdata&0x80)==0x80)  // VL bit
+	{
+		;//return;//电压信息低
+		
+	}
+	I2C_Read_Data(reg_ctr1,&getdata,1);
+	getdata = getdata | 0x20;//0xDF;
+	I2C_WriteOneByte(reg_ctr1,getdata);
+	//测试
+	I2C_Read_Data(reg_ctr1,&getdata,1);
+	rt_kprintf("\r\n   Set  STOP BIT    =%02X  ",getdata);
+	
+	//开始执行时间配置
+	if(time.sec<=0x59)
+	{
+		I2C_WriteOneByte(reg_sec,time.sec);	
+		//测试
+	I2C_Read_Data(reg_sec,&getdata,1);
+		rt_kprintf("\r\n Sec=%02X  ",getdata);
+	}
+	else
+	     return;
+	if(time.min<=0x59)
+	{
+		I2C_WriteOneByte(reg_min,time.min);	
+		//测试
+	I2C_Read_Data(reg_min,&getdata,1);
+		rt_kprintf(" MIN=%02X  ",getdata);
+	}
+	else
+         return;
+	if(time.hour<=0x23)
+	{
+		I2C_WriteOneByte(reg_hour,time.hour);	
+		//测试
+	I2C_Read_Data(reg_hour,&getdata,1);
+		rt_kprintf(" Hour=%02X  ",getdata);
+	}
+	else
+	     return;
+	if(time.year<=0x99)
+	{
+		I2C_WriteOneByte(reg_year,time.year);
+		//测试
+	I2C_Read_Data(reg_year,&getdata,1);
+		rt_kprintf(" Year=%02X  ",getdata);
+	}
+	else
+	     return;
+	if(time.month<=12)
+	{
+		I2C_WriteOneByte(reg_month,time.month);
+		//测试
+	I2C_Read_Data(reg_month,&getdata,1);
+		rt_kprintf(" MONTH=%02X  ",getdata);
+	}
+	else
+	     return;
+	if(time.day<=0x31)
+	{
+		I2C_WriteOneByte(reg_day,time.day);	
+		//测试
+	I2C_Read_Data(reg_day,&getdata,1);
+		rt_kprintf(" Day=%02X  \r\n",getdata);
+	}
+	else
+	    return;
+	//SEGGER_RTT_printf(0,"RTC SET\n");
+	I2C_Read_Data(reg_ctr1,&getdata,1);
+	//rt_kprintf("\r\n Read  old  REG_CTRL1=%02X  ",getdata);
+	getdata = 0x00;
+	I2C_WriteOneByte(reg_ctr1,getdata);
+	//测试
+	I2C_Read_Data(reg_ctr1,&getdata,1); 
+	//rt_kprintf("\r\n Read  NEW  REG_CTRL1=%02X  ",getdata);
+
+	#endif
+}
+
+void RTC8564_Get(void)
+{
+
+#ifdef RTC_8564
+   u8  getdata=0;
+   
+	 memset(rtc_tmp,0xEE,8);  
+	 I2C_Read_Data(reg_year,&rtc_tmp[0],1);
+	 I2C_Read_Data(reg_month,&rtc_tmp[1],1);
+	 I2C_Read_Data(reg_day,&rtc_tmp[2],1);
+	 I2C_Read_Data(reg_hour,&rtc_tmp[3],1);
+	 I2C_Read_Data(reg_min,&rtc_tmp[4],1);
+	 I2C_Read_Data(reg_sec,&rtc_tmp[5],1);
+	 I2C_Read_Data(reg_week,&rtc_tmp[6],1); 
+	
+	 if(rtc_tmp[5]&0x80)
+	  {
+          RTC_8564_IIC_INIT(); 
+		  RTC8564_Init();
+		  
+		  rt_kprintf("\r\n	RTC  ERROR	---Initial again  2 \r\n");  
+		  I2C_Read_Data(reg_ctr1,&getdata,1);
+		  if(getdata==0x20)   // stop bit enable
+		  {
+				//printf("\r\n RTC REG_CTRL1=%02X  ",getdata);
+				getdata = 0x00;
+				I2C_WriteOneByte(reg_ctr1,getdata);
+				I2C_Read_Data(reg_ctr1,&getdata,1);
+		  }	 
+         #if 1  
+          if(SysConf_struct.RTC_updated==1)
+          {
+               SysConf_struct.RTC_updated=0;               
+			   Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
+               rt_kprintf("\r\n  RTC 电压低  --  RTC 时间不准 \r\n");
+		  }
+         #endif
+		  
+	  }	
+	 else
+	 {
+	  Reg_common[0]=rtc_tmp[0];  //  get useful bits  year
+	  Reg_common[1]=rtc_tmp[1]&0x1F;  // month	 
+	  Reg_common[2]=rtc_tmp[2]&0x3F; // day
+	  Reg_common[3]=rtc_tmp[3]&0x3F;  //  get useful bits	 hour
+	  Reg_common[4]=rtc_tmp[4]&0x7F; // min 
+	  Reg_common[5]=rtc_tmp[5]&0x7F; // sec
+	
+	  //---sec check ---
+	  if((bcd2bin(Reg_common[5])>59)||(bcd2bin(Reg_common[4])>59)||(bcd2bin(Reg_common[3])>23)|| \
+		 (bcd2bin(Reg_common[2])>31)||(bcd2bin(Reg_common[1])>12)||(bcd2bin(Reg_common[0])>99)||\
+		 ((bcd2bin(Reg_common[0])==0)&&(bcd2bin(Reg_common[1])==0)&&(bcd2bin(Reg_common[2])==0)))
+	  {    
+		 //  printf("\r\n 获取到的RTC 不合法 需要重新设置 %02X-%02X-%02X %02X:%02X:%02X\r\n",Reg_common[0],Reg_common[1],Reg_common[2],Reg_common[3],Reg_common[4],Reg_common[5]);
+		  RTC_8564_IIC_INIT(); 
+		  RTC8564_Init();
+		   rt_kprintf("\r\n  RTC  ERROR  ---Initial again  1 \r\n");  
+		  I2C_Read_Data(reg_ctr1,&getdata,1);
+		  if(getdata==0x20)   // stop bit enable
+		  {
+				//printf("\r\n RTC REG_CTRL1=%02X  ",getdata);
+				getdata = 0x00;
+				I2C_WriteOneByte(reg_ctr1,getdata);
+				I2C_Read_Data(reg_ctr1,&getdata,1);
+			//	printf("\r\n RTC  Reset REG_CTRL1=%02X  ",getdata);
+		  }		
+	  }
+	  else	  
+	  { 
+		memset(rtc_current.BCD_6_Bytes,0,6);
+		memcpy(rtc_current.BCD_6_Bytes,Reg_common,6);
+		
+		//rt_kprintf("\r\n RTC One Bye one   %02X-%02X-%02X %02X:%02X:%02X\r\n",rtc_current.BCD_6_Bytes[0],rtc_current.BCD_6_Bytes[1],rtc_current.BCD_6_Bytes[2],rtc_current.BCD_6_Bytes[3],rtc_current.BCD_6_Bytes[4],rtc_current.BCD_6_Bytes[5]);
+	  }  
+	 }
+	#endif 
 
 }
 
 
 
 
-
-/*
-   gps接收中断处理，收到\n认为收到一包
-   收到一包调用处理函数
- */
-static uint8_t	last_ch = 0;
-void UART5_IRQHandler( void )
-{
-    uint8_t			ch;
-    rt_interrupt_enter( );
-    if( USART_GetITStatus( UART5, USART_IT_RXNE ) != RESET )
-    {
-        ch = USART_ReceiveData( UART5 );
-        if( ( ch == 0x0a ) && ( last_ch == 0x0d ) ) /*遇到0d 0a 表明结束*/
-        {
-            uart5_rxbuf.body[uart5_rxbuf.wr++] = ch;
-            if( uart5_rxbuf.wr < 124 )
-            {
-                //--------- fliter  useful------
-                if((strncmp((char *)uart5_rxbuf.body + 3, "RMC,", 4) == 0) || (strncmp((char *)uart5_rxbuf.body + 3, "TXT,", 4) == 0) ||  \
-                        (strncmp((char *)uart5_rxbuf.body + 3, "GGA,", 4) == 0)) //||(strncmp((char*)uart5_rxbuf.body+3,"GSA,",4)==0))
-                {
-                    rt_mq_send( &mq_gps, (void *)&uart5_rxbuf, uart5_rxbuf.wr + 2 );
-                }
-            }
-            uart5_rxbuf.wr = 0;
-        }
-        else
-        {
-            // 1. get  head char
-            if(ch == '$')
-                uart5_rxbuf.wr = 0;
-            // 2.  judge  head char
-            if(uart5_rxbuf.body[0] != '$') // add later
-                uart5_rxbuf.wr = 0;
-            // 3.  rx data
-            uart5_rxbuf.body[uart5_rxbuf.wr++] = ch;
-            if( uart5_rxbuf.wr == UART5_RX_SIZE )
-            {
-                uart5_rxbuf.wr = 0;
-            }
-            uart5_rxbuf.body[uart5_rxbuf.wr] = 0;
-        }
-        last_ch = ch;
-        USART_ClearITPendingBit( UART5, USART_IT_RXNE );
-    }
-    rt_interrupt_leave( );
-}
-
-/***********************************************************
-* Function:
-* Description:
-* Input:
-* Input:
-* Output:
-* Return:
-* Others:
-***********************************************************/
-void gps_baud( int baud )
-{
-    USART_InitTypeDef USART_InitStructure;
-    USART_InitStructure.USART_BaudRate				= baud;
-    USART_InitStructure.USART_WordLength			= USART_WordLength_8b;
-    USART_InitStructure.USART_StopBits				= USART_StopBits_1;
-    USART_InitStructure.USART_Parity				= USART_Parity_No;
-    USART_InitStructure.USART_HardwareFlowControl	= USART_HardwareFlowControl_None;
-    USART_InitStructure.USART_Mode					= USART_Mode_Rx | USART_Mode_Tx;
-    USART_Init( UART5, &USART_InitStructure );
-}
-
-//FINSH_FUNCTION_EXPORT( gps_baud, config gsp_baud );
-
-
-/*初始化*/
-
-void  gps_io_init(void)
-{
-    GPIO_InitTypeDef	GPIO_InitStructure;
-    RCC_AHB1PeriphClockCmd( RCC_AHB1Periph_GPIOD, ENABLE );
-#if 1
-    //-------- 开短路检测  --------
-    //#ifdef HC_595_CONTROL
-    // 2013-4-20		更改PCB   用PD4 : GPS 天线开路		PB6 : GPS  天线短路
-    GPIO_InitStructure.GPIO_OType   = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_PuPd	  = GPIO_PuPd_NOPULL;
-    GPIO_InitStructure.GPIO_Speed   = GPIO_Speed_2MHz;
-    //	 IN
-    //------------------- PD4 -----------------------------
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_4;    //GPS 天线开路
-    GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_IN;
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
-    //------------------- PB6 -----------------------------
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_6;    //GPS 天线短路
-    GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_IN;
-    GPIO_Init(GPIOB, &GPIO_InitStructure);
-#endif
-
-}
-
-
-/*初始化*/
-static rt_err_t dev_gps_init( rt_device_t dev )
-{
-    GPIO_InitTypeDef	GPIO_InitStructure;
-    NVIC_InitTypeDef	NVIC_InitStructure;
-
-    RCC_AHB1PeriphClockCmd( RCC_AHB1Periph_GPIOC, ENABLE );
-    RCC_AHB1PeriphClockCmd( RCC_AHB1Periph_GPIOD, ENABLE );
-    RCC_APB1PeriphClockCmd( RCC_APB1Periph_UART5, ENABLE );
-
-    GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_OUT;
-    GPIO_InitStructure.GPIO_OType	= GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_PuPd	= GPIO_PuPd_NOPULL;
-    GPIO_InitStructure.GPIO_Speed	= GPIO_Speed_50MHz;
-
-    GPIO_InitStructure.GPIO_Pin = GPS_PWR_PIN;
-    GPIO_Init( GPS_PWR_PORT, &GPIO_InitStructure );
-    GPIO_ResetBits( GPS_PWR_PORT, GPS_PWR_PIN );
-
-
-
-    /*uart5 管脚设置*/
-
-    GPIO_InitStructure.GPIO_OType	= GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_PuPd	= GPIO_PuPd_UP;
-    GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_AF;
-    GPIO_InitStructure.GPIO_Speed	= GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_Pin		= GPIO_Pin_12;
-    GPIO_Init( GPIOC, &GPIO_InitStructure );
-
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2;
-    GPIO_Init( GPIOD, &GPIO_InitStructure );
-
-    GPIO_PinAFConfig( GPIOC, GPIO_PinSource12, GPIO_AF_UART5 );
-    GPIO_PinAFConfig( GPIOD, GPIO_PinSource2, GPIO_AF_UART5 );
-
-    /*NVIC 设置*/
-    NVIC_InitStructure.NVIC_IRQChannel						= UART5_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority	= 1;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority			= 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd					= ENABLE;
-    NVIC_Init( &NVIC_InitStructure );
-
-    gps_baud( 9600 );
-    USART_Cmd( UART5, ENABLE );
-    USART_ITConfig( UART5, USART_IT_RXNE, ENABLE );
-
-    GPIO_SetBits( GPIOD, GPIO_Pin_10 );
-
-
-
-    return RT_EOK;
-}
-
-/***********************************************************
-* Function:
-* Description:
-* Input:
-* Input:
-* Output:
-* Return:
-* Others:
-***********************************************************/
-static rt_err_t dev_gps_open( rt_device_t dev, rt_uint16_t oflag )
-{
-    GPIO_SetBits( GPS_PWR_PORT, GPS_PWR_PIN );
-    return RT_EOK;
-}
-
-/***********************************************************
-* Function:
-* Description:
-* Input:
-* Input:
-* Output:
-* Return:
-* Others:
-***********************************************************/
-static rt_err_t dev_gps_close( rt_device_t dev )
-{
-    GPIO_ResetBits( GPS_PWR_PORT, GPS_PWR_PIN );
-    return RT_EOK;
-}
-
-/***********************************************************
-* Function:gps_read
-* Description:数据模式下读取数据
-* Input:
-* Input:
-* Output:
-* Return:
-* Others:
-***********************************************************/
-static rt_size_t dev_gps_read( rt_device_t dev, rt_off_t pos, void *buff, rt_size_t count )
-{
-    return RT_EOK;
-}
-
-/***********************************************************
-* Function:		gps_write
-* Description:	数据模式下发送数据，要对数据进行封装
-* Input:		const void* buff	要发送的原始数据
-       rt_size_t count	要发送数据的长度
-       rt_off_t pos		使用的socket编号
-* Output:
-* Return:
-* Others:
-***********************************************************/
-
-static rt_size_t dev_gps_write( rt_device_t dev, rt_off_t pos, const void *buff, rt_size_t count )
-{
-    rt_size_t	len = count;
-    uint8_t		*p	= (uint8_t *)buff;
-
-    while( len )
-    {
-        USART_SendData( UART5, *p++ );
-        while( USART_GetFlagStatus( UART5, USART_FLAG_TC ) == RESET )
-        {
-        }
-        len--;
-    }
-    return RT_EOK;
-}
-
-/***********************************************************
-* Function:		gps_control
-* Description:	控制模块
-* Input:		rt_uint8_t cmd	命令类型
-    void *arg       参数,依据cmd的不同，传递的数据格式不同
-* Output:
-* Return:
-* Others:
-***********************************************************/
-static rt_err_t dev_gps_control( rt_device_t dev, rt_uint8_t cmd, void *arg )
-{
-    int i = *(int *)arg;
-    switch( cmd )
-    {
-    case CTL_GPS_OUTMODE:
-        break;
-    case CTL_GPS_BAUD:
-        gps_baud( i );
-    }
-    return RT_EOK;
-}
-
-ALIGN( RT_ALIGN_SIZE )
-static char thread_gps_stack[4096];
-struct rt_thread thread_gps;
-
-
-/***********************************************************
-* Function:
-* Description:
-* Input:
-* Input:
-* Output:
-* Return:
-* Others:
-***********************************************************/
-static void rt_thread_entry_gps( void *parameter )
-{
-    rt_err_t	res;
-
-    // 1.  init
-    GPS_Abnormal_init();
-
-    //2.  main while
-    while( 1 )
-    {
-        // 1. rx data
-        res = rt_mq_recv( &mq_gps, (void *)&gps_rx, 124, 2 ); //等待100ms,实际上就是变长的延时,最长100ms
-        if(res == RT_EOK )                                                    //收到一包数据
-        {
-            //---------------------------------
-            if( flag_bd_upgrade_uart == 0 )
-            {
-                GPS_Rx_Process( gps_rx.body, gps_rx.wr );
-                GPS_Abnormal_process();//  GPS 模块异常检测
-
-            }
-            else
-            {
-                if( gps_rx.body[0] == 0x40 )
-                {
-                    rt_device_write( &dev_vuart, 0, gps_rx.body, gps_rx.wr);
-                }
-            }
-        }
-
-        //2. GPS_ANTENNA_status
-        GPS_ANTENNA_status();
-        GPS_short_judge_timer();
-
-        rt_thread_delay(30);
-        gps_thread_runCounter = 0;
-    }
-}
-
-/*gps设备初始化*/
-void gps_init( void )
-{
-    //rt_sem_init( &sem_gps, "sem_gps", 0, 0 );
-
-    rt_mq_init( &mq_gps, "mq_gps", &gps_rawinfo[0], 128 - sizeof( void * ), GPS_RAWINFO_SIZE, RT_IPC_FLAG_FIFO );
-    rt_thread_init( &thread_gps,
-                    "gps",
-                    rt_thread_entry_gps,
-                    RT_NULL,
-                    &thread_gps_stack[0],
-                    sizeof( thread_gps_stack ), Prio_GPS, 6 );
-    rt_thread_startup( &thread_gps );
-
-    dev_gps.type	= RT_Device_Class_Char;
-    dev_gps.init	= dev_gps_init;
-    dev_gps.open	= dev_gps_open;
-    dev_gps.close	= dev_gps_close;
-    dev_gps.read	= dev_gps_read;
-    dev_gps.write	= dev_gps_write;
-    dev_gps.control = dev_gps_control;
-
-    rt_device_register( &dev_gps, "gps", RT_DEVICE_FLAG_RDWR | RT_DEVICE_FLAG_STANDALONE );
-    rt_device_init( &dev_gps );
-}
-
-/*gps开关*/
-rt_err_t gps_onoff( uint8_t openflag )
-{
-    if( openflag == 0 )
-    {
-        GPIO_ResetBits( GPIOD, GPIO_Pin_10 );
-    }
-    else
-    {
-        GPIO_SetBits( GPIOD, GPIO_Pin_10 );
-    }
-    return 0;
-}
-
-FINSH_FUNCTION_EXPORT( gps_onoff, gps_onoff([1 | 0] ) );
-
-/***********************************************************
-* Function:
-* Description:
-* Input:
-* Input:
-* Output:
-* Return:
-* Others:
-***********************************************************/
-rt_size_t gps_write( uint8_t *p, uint8_t len )
-{
-    return dev_gps_write( &dev_gps, 0, p, len );
-}
-
-//FINSH_FUNCTION_EXPORT( gps_write, write to gps );
-
-
-
-void  gps_mode(u8 *str)
-{
-    if (strlen((const char *)str) == 0)
-    {
-        rt_kprintf("\r\n    定位模式:    ");
-        switch(GpsStatus.Position_Moule_Status)
-        {
-        case 1:
-            rt_kprintf(" BD\r\n");
-            break;
-        case 2:
-            rt_kprintf(" GPS\r\n");
-            break;
-        case 3:
-            rt_kprintf(" BD+GPS\r\n");
-            break;
-        }
-    }
-    else
-    {
-        if(str[0] == '1')
-        {
-            dev_gps_write( &dev_gps, 0, BD_MODE, strlen((const char *)BD_MODE));
-            GpsStatus.Position_Moule_Status = 1;
-            //GPS_PutStr(BD_MODE);
-            rt_kprintf ("\r\n    BD MODE\r\n");
-        }
-        else if(str[0] == '2')
-        {
-            dev_gps_write( &dev_gps, 0, GPS_MODE, strlen((const char *)BD_MODE));
-            GpsStatus.Position_Moule_Status = 2;
-            //GPS_PutStr(GPS_MODE);
-            rt_kprintf("\r\n    GPS MODE\r\n");
-        }
-        else if(str[0] == '3')
-        {
-            dev_gps_write( &dev_gps, 0, GPSBD_MODE, strlen((const char *)BD_MODE));
-            GpsStatus.Position_Moule_Status = 3;
-            //GPS_PutStr(GPSBD_MODE);
-            rt_kprintf("\r\n    GPS&BD MODE\r\n");
-        }
-    }
-}
-FINSH_FUNCTION_EXPORT(gps_mode, posit_mode setting);
-
-
-void  gps_raw(u8 *str)
-{
-    if(str[0] == '1')
-    {
-        GpsStatus.Raw_Output = 1;
-    }
-    else if(str[0] == '2')
-    {
-        GpsStatus.Raw_Output = 2;
-    }
-    else if(str[0] == '0')
-    {
-        GpsStatus.Raw_Output = 0;
-    }
-
-}
-
-FINSH_FUNCTION_EXPORT(gps_raw, gps raw output);
 
 /************************************** The End Of File **************************************/
 

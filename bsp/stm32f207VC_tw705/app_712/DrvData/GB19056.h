@@ -18,36 +18,6 @@
 #include "Usbh_conf.h"
 //#include "usbh_usr.h"
 
-//     DRV  CMD
-//  ≤…ºØ√¸¡Ó
-#define  GB_SAMPLE_00H    0x00
-#define  GB_SAMPLE_01H    0x01
-#define  GB_SAMPLE_02H    0x02
-#define  GB_SAMPLE_03H    0x03
-#define  GB_SAMPLE_04H    0x04
-#define  GB_SAMPLE_05H    0x05
-#define  GB_SAMPLE_06H    0x06
-#define  GB_SAMPLE_07H    0x07
-#define  GB_SAMPLE_08H    0x08
-#define  GB_SAMPLE_09H    0x09
-#define  GB_SAMPLE_10H    0x10
-#define  GB_SAMPLE_11H    0x11
-#define  GB_SAMPLE_12H    0x12
-#define  GB_SAMPLE_13H    0x13
-#define  GB_SAMPLE_14H    0x14
-#define  GB_SAMPLE_15H    0x15
-//   …Ë÷√√¸¡Ó
-#define  GB_SET_82H      0x82
-#define  GB_SET_83H      0x83
-#define  GB_SET_84H      0x84
-#define  GB_SET_82H      0x82
-#define  GB_SET_C2H      0x82
-#define  GB_SET_C3H      0x83
-#define  GB_SET_C4H      0x84
-
-
-
-
 
 
 

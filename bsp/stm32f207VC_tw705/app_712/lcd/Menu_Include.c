@@ -16,7 +16,7 @@ unsigned int CounterBack = 0;
 unsigned char UpAndDown = 1; //参数设置主菜单选择序号
 
 unsigned char Dis_date[22] = {"2000-00-00  00:00:00"}; //20
-unsigned char Dis_speDer[20] = {" 000km/h    000 度"};
+unsigned char Dis_speDer[20] ={" 000km/h            "}; //{" 000km/h    000 度"};
 
 unsigned char GPS_Flag = 0, Gprs_Online_Flag = 0; //记录gps gprs状态的标志
 
@@ -25,7 +25,7 @@ unsigned char speed_time_rec[15][6];//年  月  日  时  分  速度
 unsigned char ServiceNum[13];//设备的唯一性编码,IMSI号码的后12位
 
 unsigned char KeyValue = 0;
-u16  KeyCheck_Flag[4] = {0, 0, 0, 0};
+u16  KeyCheck_Flag[6] = {0, 0, 0, 0,0,0};
 
 unsigned char ErrorRecord = 0; //疲劳超速记录   疲劳时间错误为1超速时间错误为2,按任意键清0
 PilaoRecord PilaoJilu[12];
@@ -142,7 +142,7 @@ u8 SpeedStatus_abnormal = 0; //速度状态异常
 
 u8 Menu_txt_state = 0; //  缺纸 1   IC卡不匹配2   非标准IC卡 3    USB 所有数据导出4
 
-
+u8 Menu_Number=0;  // 界面 编号  1: idle  2: handle  3: detect 4: Txt
 
 ALIGN(RT_ALIGN_SIZE)
 MENUITEM *pMenuItem;

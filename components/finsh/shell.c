@@ -25,6 +25,7 @@
 
 #include "finsh.h"
 #include "shell.h"
+#include "App_moduleConfig.h"
 
 /* finsh thread */
 static struct rt_thread finsh_thread;
@@ -355,6 +356,7 @@ struct finsh_shell _shell;
 void finsh_thread_entry(void *parameter)
 {
     char ch;
+	  char  Radar_regStr[20];
 
     /* normal is echo mode */
     shell->echo_mode = 1;
@@ -419,7 +421,17 @@ void finsh_thread_entry(void *parameter)
                 if (shell->line_position != 0) finsh_run_line(&shell->parser, shell->line);
                 else rt_kprintf("\n");
 
-                rt_kprintf(FINSH_PROMPT);
+                rt_kprintf(FINSH_PROMPT);				
+				//------ Debug 口接收  雷达输出信息      ---------
+				
+				if(ch == '\r')   
+				{
+				  memset(Radar_regStr,0,sizeof(Radar_regStr));
+				  memcpy(Radar_regStr,shell->line,strlen(shell->line)-1);
+				  //rt_kprintf("\r\n lnw:%s",Radar_regStr); 
+				}  
+
+				//-------------------------------------------------------
                 memset(shell->line, 0, sizeof(shell->line));
                 shell->line_position = 0;
 

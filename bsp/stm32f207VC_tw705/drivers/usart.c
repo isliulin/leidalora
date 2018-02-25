@@ -311,7 +311,7 @@ static void NVIC_Configuration(void)
     /*  485  Bus   ½Ó¿Ú*/
     NVIC_InitStructure.NVIC_IRQChannel = UART4_IRQn;
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 4;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 2;
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
     NVIC_Init(&NVIC_InitStructure);
 #endif
@@ -320,7 +320,7 @@ static void NVIC_Configuration(void)
     /*  GPS interface  */
     NVIC_InitStructure.NVIC_IRQChannel = UART5_IRQn;
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 2;
+    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 4;
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
     NVIC_Init(&NVIC_InitStructure);
 #endif

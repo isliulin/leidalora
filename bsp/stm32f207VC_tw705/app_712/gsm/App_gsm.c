@@ -66,7 +66,6 @@ u8     Current_UDP_sd = 0; // 及时上报 标志位
 
 u8  COPS_Couter = 0;           // COPS  返回次数
 
-u16   CSQ_counter = 0;
 u16   CSQ_Duration = 288;  //查询CSQ 的定时间隔
 u8  CSQ_flag = 1;
 u8  ModuleSQ = 0; //GSM 模块信号强度数值
@@ -78,34 +77,12 @@ u8   Mocule_Data_Come = 0; // 模块收到数据
 u8   Send_DataFlag = 0; // 发送GSM data Flag
 u8   LinkNum = 0; // 通信链路    0    LINK 1    1   LINK
 u8   Receive_DataFlag = 0; // 接收数据
-u8   Redial_reset_save = 0; // 拨号重启前存储参数
 /*
     应用相关函数
 */
 
 void   DialLink_TimeOut_Process(void)
 {
-    if( DataDial.start_dial_stateFLAG == 1)
-    {
-        DataDial.start_dial_counter++;
-        //-------- add  on  2013 4-8  -----------
-        if(( DataDial.start_dial_counter == 593) && (Spd_Using <= 10))
-            DataLink_EndFlag = 1;
-        if(( DataDial.start_dial_counter == 597) && (Spd_Using <= 10))
-            Redial_reset_save = 1;
-        if((DataDial.start_dial_counter > 600) && (Spd_Using <= 10))
-        {
-            DataDial.start_dial_counter = 0;
-            //----------  存储休眠定时器 -----------
-            if(GB19056.workstate == 0)
-                rt_kprintf( "\r\n 拨号限时使能了\r\n" );
-            DataDial.start_dial_stateFLAG=0;  // reset();  //  system  reset
-            DataDial.Pre_Dial_flag=0; 
-		    DialLink_TimeOut_Clear();
-        }
-    }
-    else
-        DataDial.start_dial_counter = 0;
 }
 
 void   DialLink_TimeOut_Clear(void)
@@ -176,35 +153,7 @@ u8   NO_ACKtimer(void)
 {
   if(DataLink_Status()==0)
   	   return 0;
-    // 判断中心应答
-    //------- no  ack  process -----
-    if((Send_Rdy4ok == 2) && ( ReadCycle_status == RdCycle_SdOver))
-    {
-        ACK_timer++;
-        if( ACK_timer >= 40)
-        {
-            ACK_timer = 0;
-            cycle_read = mangQu_read_reg; //   还原read重新发送
-            ReadCycle_status = RdCycle_Idle;
-            // rt_kprintf("\r\n MQ_true Noack rensend! \r\n");
-        }
 
-    }
-
-     //----------------------------
-     if(Flag_0200_send)
-     	{
-     	   Timer_0200_send++;
-		   if(Timer_0200_send>120) 
-		   	{
-		   	   Timer_0200_send=0;
-			   Flag_0200_send=0;
-               DataLink_EndFlag = 1; 
-			   if(GB19056.workstate == 0)
-			    rt_kprintf("\r\n 连续无应答，断开 \r\n");   
-		   	}
-     	}
-	
     return true;
 }
 
@@ -305,12 +254,11 @@ static void gsm_thread_entry(void *parameter)
 #ifdef HMI
     HMI_app_init();
 #endif
-    gps_init();
-
     //--------------------------------------
     while (1)
     {
 
+      #if 1
         if(GSM_Working_State())
         {
             // 1.  after power  on    get imsi code
@@ -319,11 +267,13 @@ static void gsm_thread_entry(void *parameter)
             GSM_Module_TotalInitial(0);  //GSM_Module_TotalInitial(1);
             // 3. Receivce & Process   Communication  Module   data ----
             GSM_Buffer_Read_Process();
-        }
+        } 
+	 #endif	
         rt_thread_delay(22);
+	 #if 1
         if(GSM_Working_State() == 2)
         {
-            DataLink_Process();
+            //DataLink_Process();
             //------------------------------------------------
             if (Send_DataFlag == 1)
             {
@@ -333,32 +283,12 @@ static void gsm_thread_entry(void *parameter)
                 Send_DataFlag = 0;
 
             }
-            //监听
-            if(CallState == CallState_rdytoDialLis)
-            {
-                CallState = CallState_Dialing;
-              //rt_kprintf("\r\n拨打%s\r\n",atd_str);
-            }
-            //---------  Step timer
-            //  Dial_step_Single_10ms_timer();
+      
             //   TTS
             TTS_Data_Play();
-            //   Get  CSQ value
-            if(GSM_CSQ_Query() == false)
-            {
-                if(Calling_ATA_flag == 1)
-                {
-                    delay_ms(10);
-                    rt_hw_gsm_output("ATA\r\n");    //检查信号强度
-                    if(DispContent)
-                        rt_kprintf("ATA\r\n");
-
-                    Calling_ATA_flag = 0;
-                }
-            }
-            //   SMS  Service
-            SMS_Process();
         }
+	 #endif	
+		
     }
 }
 
@@ -370,30 +300,12 @@ static void timeout_gsm(void   *parameter)
     //   init  Module related
     GPRS_GSM_PowerON();
 
-    //---  Data Link END  --------
-    End_Datalink();
-    //       ISP timer
-    ISP_Timer();
     //       TTS timeout
     TTS_Exception_TimeLimt();
-    //      Voice Record
-#ifdef REC_VOICE_ENABLE
-    VOC_REC_process();
-#endif
-    //      Dial Link process
-    DialLink_TimeOut_Process();
-    //  CSQ
-    GSM_CSQ_timeout();
+
     //  AT cmd timeout
     AT_cmd_send_TimeOUT();
-#ifdef SMS_ENABLE
-    //  SMS  timer
-    SMS_timer();
 
-    NO_ACKtimer(); //  中心应答timer
-#endif
-    //    RTC get
-    //time_now = Get_RTC();
 }
 
 
@@ -425,7 +337,7 @@ void _gsm_startup(void)
                             "GsmThrd",
                             gsm_thread_entry, RT_NULL,
                             &gsm_thread_stack[0], sizeof(gsm_thread_stack),
-                            Prio_GSM, 10);
+                            Prio_GSM, 10); 
 
     if (result == RT_EOK)
     {

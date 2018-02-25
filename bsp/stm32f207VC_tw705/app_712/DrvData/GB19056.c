@@ -245,6 +245,8 @@ FINSH_FUNCTION_EXPORT(Lora_WriteLOG, Lora_WriteLOG());
 void Lora_Tx(u8* txStr)
 {  
    u8   TX_str_Log[256]; 
+  //u8   left_len=0,current_add=0;
+  // u8   tx_32[33]; 
    u16  intxlen=strlen(txStr);
    
    memset(TX_str_Log,0,sizeof(TX_str_Log));
@@ -259,11 +261,39 @@ void Lora_Tx(u8* txStr)
 
    memset(TX_str_Log,0,sizeof(TX_str_Log));
    // --  填写定向发送的地址
-   TX_str_Log[0]=(SysConf_struct.LORA_dest1_ADDRESS>>8);
-   TX_str_Log[1]=(u8)SysConf_struct.LORA_dest1_ADDRESS;
-   TX_str_Log[2]=SysConf_struct.LORA_dest1_Channel;
+   TX_str_Log[0]=0xFF;//(SysConf_struct.LORA_dest1_ADDRESS>>8);
+   TX_str_Log[1]=0xFF;//(u8)SysConf_struct.LORA_dest1_ADDRESS;
+   TX_str_Log[2]=SysConf_struct.LORA_SYS_Channel;  //   LORA  系统频点
+   ;
    memcpy(TX_str_Log+3,txStr,intxlen);
-   rt_device_write(&Device_UsrSerial, 0, ( const void *)TX_str_Log, (rt_size_t)intxlen+3);
+
+  #if  0
+   left_len=intxlen+3;
+   current_add=0;
+
+   while(left_len)
+   	{
+   	   if(left_len>32)	   	  
+       {
+         memset(tx_32,0,sizeof(tx_32));
+		 memcpy(tx_32,TX_str_Log+current_add,32);
+         rt_device_write(&Device_UsrSerial, 0, ( const void *)tx_32, (rt_size_t)32);
+         current_add+=32;
+		 left_len-=32;
+		 
+   	   	}	 
+	   else
+	   { 
+	      memset(tx_32,0,sizeof(tx_32));
+		  memcpy(tx_32,TX_str_Log+current_add,left_len);
+	     rt_device_write(&Device_UsrSerial, 0, ( const void *)tx_32, (rt_size_t)left_len);
+		 left_len=0;  // send over
+	   }
+	   rt_kprintf("\r\n info:%s",tx_32); 
+   	} 
+   #endif
+   rt_device_write(&Device_UsrSerial, 0, ( const void *)TX_str_Log, (rt_size_t)intxlen+3);  
+   delay_ms(30);
    OutPrint_HEX("Lora 发送原始消息",TX_str_Log,intxlen+3);
 }
 FINSH_FUNCTION_EXPORT(Lora_Tx, Lora_Tx(str));
@@ -278,24 +308,23 @@ void lora_clear(void)
 FINSH_FUNCTION_EXPORT(lora_clear, lora_clear());
 
 
-
-void lora_L_addr(u32 address)
+void lora_dest_addr(u32 address)
 {
-    rt_kprintf("\r\n lora set address(HEX)=0x%0004X  address(OD)=%d ",address,address);
-    SysConf_struct.LORA_Local_ADDRESS=address;
+    rt_kprintf("\r\n lora set Dest address(HEX)=0x%0004X  address(OD)=%d ",address,address);
+    SysConf_struct.LORA_dest1_ADDRESS=address;
     Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
 
 }
-FINSH_FUNCTION_EXPORT(lora_L_addr, lora_L_addr(u32 address));
+FINSH_FUNCTION_EXPORT(lora_dest_addr, lora_dest_addr(u32 address));
 
 
-void lora_L_ch(u8 channel)
+void lora_dest_ch(u8 channel) 
 {
-    rt_kprintf("\r\n lora set channel=%d ",channel);
-    SysConf_struct.LORA_Local_Channel=channel;
+    rt_kprintf("\r\n lora set Dest channel=%d ",channel);
+    SysConf_struct.LORA_dest1_Channel=channel;
     Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
 }
-FINSH_FUNCTION_EXPORT(lora_L_ch,lora_L_ch(u8 channel));
+FINSH_FUNCTION_EXPORT(lora_dest_ch,lora_dest_ch(u8 channel));
 
 
 void lora_set_baud(u32 baud)
@@ -307,13 +336,24 @@ void lora_set_baud(u32 baud)
 FINSH_FUNCTION_EXPORT(lora_set_baud,lora_set_baud(u32 baud));
 
 
-void lora_wr_type(u8 type)
+void lora_type(u8 type)
 {
-	rt_kprintf("\r\n lora set  type=  %d   0:  中继   1: 雷达监测点   2:  道口接收点   3: 手持终端 ",type);
+	rt_kprintf("\r\n lora set  type=  %d   0:  中继   1: 雷达监测点   2:  道口接收点   3: 便携终端 ",type);
 	SysConf_struct.LORA_TYPE=type;
     Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
 }
-FINSH_FUNCTION_EXPORT(lora_wr_type,lora_set(u8 type));
+FINSH_FUNCTION_EXPORT(lora_type,lora_type(u8 type));
+
+
+
+void lora_direction(u8 type)
+{       
+	SysConf_struct.LORA_DIRECTION=type;
+	rt_kprintf("\r\n	   Direction=  %d	0:EE 东   1: SS 南   2: WW 西  3: NN 北  4: ES 东南  5: EN  东北  6: WS  西南 7: WN 西北",SysConf_struct.LORA_DIRECTION);
+    Api_Config_write(config, ID_CONF_SYS, (u8 *)&SysConf_struct, sizeof(SysConf_struct));
+}
+FINSH_FUNCTION_EXPORT(lora_direction,lora_direction(u8 type));
+
 
 void lora_set_desc(u8* desc)
 {
@@ -330,11 +370,18 @@ void lora_info(void)
     rt_kprintf("\r\n //----------------------------------------------------");
     rt_kprintf("\r\n lora  Info=   %s ",SysConf_struct.LORA_PointDesc);
 	rt_kprintf("\r\n       L_address(HEX)=  0x%0004X  address(OD)=  %d ",SysConf_struct.LORA_Local_ADDRESS,SysConf_struct.LORA_Local_ADDRESS);
-    rt_kprintf("\r\n       L_channel=  %d ",SysConf_struct.LORA_Local_Channel);	
+    rt_kprintf("\r\n       D_channel(HEX)=  0x%02X    L_channel=  %d ",SysConf_struct.LORA_Local_Channel,SysConf_struct.LORA_Local_Channel);	
 	rt_kprintf("\r\n       D_address(HEX)=  0x%0004X  address(OD)=  %d ",SysConf_struct.LORA_dest1_ADDRESS,SysConf_struct.LORA_dest1_ADDRESS);
-    rt_kprintf("\r\n       D_channel=  %d ",SysConf_struct.LORA_dest1_Channel);
+    rt_kprintf("\r\n       D_channel(HEX)=  0x%02X    D_channel(0D)=  %d ",SysConf_struct.LORA_dest1_Channel,SysConf_struct.LORA_dest1_Channel);
+    rt_kprintf("\r\n       System_channel(HEX)=  0x%02X    System_channel(0D)=  %d ",SysConf_struct.LORA_SYS_Channel,SysConf_struct.LORA_SYS_Channel);	
+
+
 	rt_kprintf("\r\n       baud=  %d ",SysConf_struct.LORA_Baud);
-	rt_kprintf("\r\n       type=  %d   0:  中继   1: 雷达监测点   2:  道口接收 3:手持终端 ",SysConf_struct.LORA_TYPE);
+	rt_kprintf("\r\n       type=  %d   0:  中继   1: 雷达监测点   2:  道口接收 3:便携终端 ",SysConf_struct.LORA_TYPE);
+                            //    0      1      2      3        4      5     6       7       
+                            //   EE    SS   WW    NN   ES    EN    WS   WN
+	rt_kprintf("\r\n	   Direction=  %d	0:EE 东   1: SS 南   2: WW 西  3: NN 北  4: ES 东南  5: EN  东北  6: WS  西南 7: WN 西北",SysConf_struct.LORA_DIRECTION);
+    rt_kprintf("\r\n       RTC 校准状态:  %d    0: 未校准    1:  已经校准",SysConf_struct.RTC_updated);
 	rt_kprintf("\r\n //----------------------------------------------------");
 }
 FINSH_FUNCTION_EXPORT(lora_info, lora_info());
@@ -345,7 +392,7 @@ void lora_sethelp(void)
 	rt_kprintf("\r\n L_addr:    %d      0x0004X ",SysConf_struct.LORA_Local_ADDRESS,SysConf_struct.LORA_Local_ADDRESS);
     rt_kprintf("\r\n L_channel: %d ",SysConf_struct.LORA_Local_Channel);	
 	rt_kprintf("\r\n D_addr:    %d      0x0004X ",SysConf_struct.LORA_dest1_ADDRESS,SysConf_struct.LORA_dest1_ADDRESS);
-    rt_kprintf("\r\n D_channel: %d ",SysConf_struct.LORA_dest1_Channel);
+    rt_kprintf("\r\n D_channel: %d      0x02X",SysConf_struct.LORA_dest1_Channel,SysConf_struct.LORA_dest1_Channel);
 	rt_kprintf("\r\n baud:    %d ",SysConf_struct.LORA_Baud);
 	rt_kprintf("\r\n type:    %d ",SysConf_struct.LORA_TYPE);
 }
@@ -503,7 +550,8 @@ void thread_GBData_mode( void *parameter )
             if(GB19056.workstate == 0)
                 rt_kprintf(" \r\n usboutput   over! \r\n");
             //------------------------------------
-            Menu_txt_state = 4;
+            Menu_txt_state = 1;
+			LCD_DISP_Clear();
             pMenuItem = &Menu_TXT;
             pMenuItem->show();
             pMenuItem->timetick( 10 );
@@ -512,7 +560,7 @@ void thread_GBData_mode( void *parameter )
         }
 
         //-------------------------------------------
-        rt_thread_delay(5);   // RT_TICK_PER_SECOND / 50
+        rt_thread_delay(35);   // RT_TICK_PER_SECOND / 50
     }
 
 }

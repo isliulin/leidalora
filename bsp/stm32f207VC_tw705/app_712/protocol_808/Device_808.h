@@ -17,6 +17,53 @@
 
 
 //--------  Protocol IO define -------------
+
+
+
+#define  Speak_OFF      Amplifier_OFF()
+#define  Speak_ON       Amplifier_ON()  
+
+#define  AMPL_BOARD_PORT   GPIOD
+#define  AMPL_BOARD_PIN    GPIO_Pin_3
+
+
+#define  AMPL_G0_PORT    GPIOD
+#define  AMPL_G0_PIN     GPIO_Pin_2 
+
+#define  AMPL_G1_PORT    GPIOD
+#define  AMPL_G1_PIN     GPIO_Pin_1
+
+#define  AMPL_SHUTDN_PORT   GPIOD
+#define  AMPL_SHUTDN_PIN    GPIO_Pin_0
+
+
+#define  AMPL_G0_ON       GPIO_SetBits(AMPL_G0_PORT,AMPL_G0_PIN)
+#define  AMPL_G0_OFF      GPIO_ResetBits(AMPL_G0_PORT,AMPL_G0_PIN)
+
+
+#define  AMPL_G1_ON      GPIO_SetBits(AMPL_G1_PORT,AMPL_G1_PIN)
+#define  AMPL_G1_OFF     GPIO_ResetBits(AMPL_G1_PORT,AMPL_G1_PIN)
+
+#define  AMPL_SHUTDN_ON     GPIO_SetBits(AMPL_SHUTDN_PORT,AMPL_SHUTDN_PIN)
+#define  AMPL_SHUTDN_OFF    GPIO_ResetBits(AMPL_SHUTDN_PORT,AMPL_SHUTDN_PIN)
+
+#define  AMPL_BOARD_ON       GPIO_ResetBits(AMPL_BOARD_PORT,AMPL_BOARD_PIN)
+#define  AMPL_BOARD_OFF      GPIO_SetBits(AMPL_BOARD_PORT,AMPL_BOARD_PIN)
+
+
+
+#define  SPEAK_SHDN_PORT   GPIOD              //  HIGH : enable   LOW : disable normal state
+#define  SPEAK_SHDN_PIN    GPIO_Pin_4  
+
+#define  SPEAK_SHDN_ON           GPIO_SetBits(SPEAK_SHDN_PORT,GPIO_Pin_4)
+#define  SPEAK_SHDN_OFF           GPIO_ResetBits(SPEAK_SHDN_PORT,GPIO_Pin_4)
+
+
+
+
+
+
+
 //----- in pins  -------
 #define  ACC_IO_Group          GPIOE               // ACC 管脚设置
 #define  ACC_Group_NUM         GPIO_Pin_9
@@ -110,8 +157,6 @@ extern u32  DutyCycle;
 extern void  WatchDog_Feed(void);
 extern void  WatchDogInit(void);
 extern void  APP_IOpinInit(void) ;
-//  INPUT
-extern u8  HardWareGet(void);
 
 //   OUTPUT
 extern void  Enable_Relay(void);
@@ -121,9 +166,7 @@ extern void  Disable_Relay(void);
 /*
      -----------------------------
     2.  应用相关
-     -----------------------------
-*/
-extern   void Init_ADC(void);
+     -----------------------------*/
 extern void TIM3_Config( void );
 extern void TIM3_IRQHandler(void);
 /*
@@ -173,11 +216,11 @@ extern u8	DF_Write_RecordAdd(u32 Wr_Address, u32 Rd_Address, u8 Type);
 extern u8	DF_Read_RecordAdd(u32 Wr_Address, u32 Rd_Address, u8 Type);
 
 
-//------------  AD    电压相关  --------------------
-extern void  AD_PowerInit(void);
-extern void  Voltage_Checking(void);
-
 extern  void  loralight_control(u8 invalue);
+
+
+extern  void  Amplifier_ON(void);
+extern  void  Amplifier_OFF(void);
 
 
 #endif

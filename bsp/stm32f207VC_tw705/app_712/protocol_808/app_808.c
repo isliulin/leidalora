@@ -64,6 +64,7 @@ u32  app_thread_runCounter = 0;
 u32  gps_thread_runCounter = 0;
 
 
+
 //  1. MsgQueue Rx
 void  App_thread_timer(void)
 {
@@ -77,7 +78,7 @@ void  App_thread_timer(void)
 void  gps_thread_timer(void)
 {
     gps_thread_runCounter++;
-    if((gps_thread_runCounter > 300) && (BD_ISP.ISP_running == 0)) // 400* app_thread_delay(dur)
+    if((gps_thread_runCounter > 300) ) // 400* app_thread_delay(dur)
     {
         reset();
     }
@@ -86,7 +87,7 @@ void  gps_thread_timer(void)
 void  App808_tick_counter(void)
 {
     Systerm_Reset_counter++;
-    if((Systerm_Reset_counter > Max_SystemCounter) && (Spd_Using <= 10))
+    if((Systerm_Reset_counter > Max_SystemCounter) )
     {
         Systerm_Reset_counter = 0;
         //rt_kprintf("\r\n Sysem  Control   Reset \r\n");
@@ -97,29 +98,7 @@ void  App808_tick_counter(void)
 
 void SIMID_Convert_SIMCODE( void )
 {
-    SIM_code[0] = SimID_12D[0] - 0X30;
-    SIM_code[0] <<= 4;
-    SIM_code[0] |= SimID_12D[1] - 0X30;
 
-    SIM_code[1] = SimID_12D[2] - 0X30;
-    SIM_code[1] <<= 4;
-    SIM_code[1] |= SimID_12D[3] - 0X30;
-
-    SIM_code[2] = SimID_12D[4] - 0X30;
-    SIM_code[2] <<= 4;
-    SIM_code[2] |= SimID_12D[5] - 0X30;
-
-    SIM_code[3] = SimID_12D[6] - 0X30;
-    SIM_code[3] <<= 4;
-    SIM_code[3] |= SimID_12D[7] - 0X30;
-
-    SIM_code[4] = SimID_12D[8] - 0X30;
-    SIM_code[4] <<= 4;
-    SIM_code[4] |= SimID_12D[9] - 0X30;
-
-    SIM_code[5] = SimID_12D[10] - 0X30;
-    SIM_code[5] <<= 4;
-    SIM_code[5] |= SimID_12D[11] - 0X30;
 }
 
 
@@ -145,9 +124,10 @@ static void timeout_app(void   *parameter)
             ;
         }
 
+        //  RTC 8546  Output Check  ---  
+		Get_RTC_enableFlag=1;
+
         App_thread_timer();
-        gps_thread_timer();
-        GPS_Keep_V_timer();
 
         //  system timer
         App808_tick_counter();
@@ -162,28 +142,11 @@ static void timeout_app(void   *parameter)
                 ReadCycle_status = RdCycle_RdytoSD;
             }
         }
-
-
-        //--------  多媒体时间信息上传 后处理(不判应答)-----
-        //--------------  多媒体上传相关   天地通有时不给多媒体信息上传应答  --------------
-        if(MediaObj.Media_transmittingFlag == 1) // clear
-        {
-            MediaObj.Media_transmittingFlag = 2;
-            if(Duomeiti_sdFlag == 1)
-            {
-                Duomeiti_sdFlag = 0;
-                //Video_send_end();
-            }
-            // rt_kprintf("\r\n  多媒体信息前的多媒体发送完毕 \r\n");
-        }
         WatchDog_Feed();
 
-        //   from 485
-       
+		test_ack_timer();
 
-        //  油耗盒连接状态检测
-        //Oil_Sensor_Connect_Checking();
-
+        Lora_TTS_play_Process();
 
     }
 
@@ -207,12 +170,10 @@ static void App808_thread_entry(void *parameter)
     TIM3_Config();
     //  step 3:    usb host init	   	    	//  step  4:   TF card Init
     usbh_init();
-    Init_ADC();
-    gps_io_init();
 
-
-    CAN_App_Init();	// CAN初始化
-    AD_PowerInit();
+    
+    Lora_MD_PINS_INIT();
+	
 
     /* watch dog init */
     WatchDogInit();
@@ -225,55 +186,19 @@ static void App808_thread_entry(void *parameter)
     while (1)
     {
 
-        //   1.   处理相关接收到的   808 数据
-        if(Receive_DataFlag == 1)
-        {
-            memcpy( UDP_HEX_Rx, GSM_HEX, GSM_HEX_len);
-            UDP_hexRx_len = GSM_HEX_len;
-            TCP_RX_Process(LinkNum);
-            Receive_DataFlag = 0;
-        }
-        // 2.  485  Related  ---------
-        //--------------------- 拍照数据处理-----
-        if(_485_CameraData_Enable)
-        {
-            delay_ms(5);
-            _485_CameraData_Enable = 0;
-        }
-        rt_thread_delay(10);
-        // 3.    检查顺序存储 gps  标准信息的状态
-        app_thread_runCounter = 0;
-        // 4.    808   Send data
-        if(DataLink_Status() && (CallState == CallState_Idle))
-        {
-            Do_SendGPSReport_GPRS();
-        }
-        // 5. ---------------  顺序存储 GPS  -------------------
-        if(GPS_getfirst)	 //------必须搜索到经纬度
-        {
-            if(Current_UDP_sd == 0)
-                Save_GPS();
-        }
-      
-        //  10  . Redial_reset_save
-        if(Redial_reset_save)
-        {
-            delay_ms(10);
-            delay_ms(8);
-            Redial_reset_save = 0;
-        }
-
-        //-------     485  TX ------------------------
-        //Send_const485(CameraState.TX_485const_Enable);
-        rt_thread_delay(13);
+        rt_thread_delay(23);
         //    485   related  over
 
 		//  LoRa RX 
-		  LORA_Rx_Process();
-
-        //   Lora_TX_process
-        // LoRA_TX_Process(); 
-	    	
+		 LORA_Rx_Process();
+         
+	    //  RTC 8546  Output Check  ---
+	    if(Get_RTC_enableFlag==1)
+	    {	        
+            RTC8564_Get();	
+            //LORA_RUN.RX_MSG_ID++;  // add for test
+			Get_RTC_enableFlag=0; // Clear   
+		}
         //----------------------------------------
         app_thread_runCounter = 0;
         //--------------------------------------------------------
@@ -303,6 +228,8 @@ void Protocol_app_init(void)
     {
         rt_thread_startup(&app808_thread);
     }
+
+	Device_UsrSerial_regist();	  //  
 }
 
 

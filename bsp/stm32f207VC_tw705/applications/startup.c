@@ -97,7 +97,7 @@ void rtthread_startup(void)
 
 
 #endif
-    rt_kprintf("\n\r Lora Rada Module\r\n ");
+    rt_kprintf("\n\r Lora    便携终端  -1\r\n ");
     /* show version */
    // rt_show_version(); 
 
@@ -133,11 +133,9 @@ void rtthread_startup(void)
 
     // hard pins   init
     APP_IOpinInit();
-    HardWareVerion = HardWareGet();
-    Init_lcdkey(); //  提前初始化LCD  pins
+    Init_lcdkey(); //  提前初始化LCD  pins    
     delay_ms(1000); // 屏rst 拉低    维持一段时间
-    lcd_init();
-
+    LCD_init();    
     // #ifdef  GSM_UART
     _gsm_startup();
     //#endif
@@ -147,19 +145,13 @@ void rtthread_startup(void)
     // #endif
 
     // #ifdef _485_DEVICE
-    _485_startup();
+    // _485_startup();
     // #endif
 
     // #ifdef GPS_UART
     // gps_init();
     // #endif
 
-
-    //---  RTC  device Register---------------
-    if( rt_hw_rtc_init() == 1)
-    {
-        rt_kprintf("\n\r   RTC -first conifg\r\n ");
-    }
 
     /* init application_ demo */
     rt_application_init();

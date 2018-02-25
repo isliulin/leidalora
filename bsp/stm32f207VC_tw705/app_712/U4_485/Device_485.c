@@ -22,9 +22,7 @@ u8   Take_photo[10] = {0x40, 0x40, 0x61, 0x81, 0x02, 0X00, 0X00, 0X02, 0X0D, 0X0
 u8   Fectch_photo[10] = {0x40, 0x40, 0x62, 0x81, 0x02, 0X00, 0XFF, 0XFF, 0X0D, 0X0A};; //----- 报警取图命令
 
 
-u8    _485_CameraData_Enable = 0; // 有图片数据过来   1: data come  0:   no data
-u8 	 _485_content[200];
-u16	 _485_content_wr = 0;
+
 
 
 
@@ -37,6 +35,10 @@ u8   Opendoor_transFLAG = 0x02;	 //	车门打开拍照后是否上传标志位
 ALIGN(RT_ALIGN_SIZE)
 u8    _485_dev_rx[_485_dev_SIZE];
 u16  _485dev_wr = 0;
+u8   _485_outflag=0;
+u8 	 _485_content[200];
+u16	 _485_content_wr = 0;
+u8  _485_speed=0;
 
 
 
@@ -91,10 +93,53 @@ void  _485_RxHandler(u8 data)
     //      Large   LCD   Data
 
     rt_interrupt_enter( );
-    _485_dev_rx[_485dev_wr++] = data;
 
+   if(_485_outflag==0)
+      _485_dev_rx[_485dev_wr++] = data;
 
+   if(_485dev_wr>=4)
+   {
+	   if((_485_dev_rx[0]==0xFC)&&(_485_dev_rx[1]==0xFA)&&(_485_dev_rx[3]==0x00)&&(_485dev_wr==4))
+	   	{
+	   	   memcpy(_485_content,_485_dev_rx,4);
+	       _485_content_wr=_485dev_wr;
+		  
+		  _485dev_wr=0;
+	      _485_outflag=1;
+	   	}
+	   else
+	   	{
+	   	  _485dev_wr=0;
+	      _485_outflag=0;
+	   	}
+   	}    
+
+   /*
+   if(data==0x0A)
+    	{
+            _485_outflag=1;
+    	}
+    */
     rt_interrupt_leave( );
+}
+
+void _485_process(void)
+{
+   if(_485_outflag) 
+   	{
+        // rt_kprintf("485RX:%s ",_485_dev_rx);
+        // rt_hw_485_Output_Data(_485_dev_rx,_485dev_wr); // 返回给485
+        OutPrint_HEX("\r\n 485 RX",_485_content,_485_content_wr);
+		_485_speed=_485_content[2];
+
+		//if(_485_speed>10)
+            LORA_RUN.SD_Enable=1;
+
+		
+		rt_kprintf("\r\n  485 速度: %d  km/h",_485_speed);
+       _485_outflag=0;
+   	}
+
 }
 
 
@@ -136,7 +181,7 @@ static rt_err_t   Device_485_init( rt_device_t dev )
     NVIC_Init(&NVIC_InitStructure);
 
     //   4.  uart  Initial
-    USART_InitStructure.USART_BaudRate = 57600;  //485
+    USART_InitStructure.USART_BaudRate = 9600;  //485 
     USART_InitStructure.USART_WordLength = USART_WordLength_8b;
     USART_InitStructure.USART_StopBits = USART_StopBits_1;
     USART_InitStructure.USART_Parity = USART_Parity_No;

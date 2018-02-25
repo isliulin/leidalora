@@ -159,7 +159,7 @@ static rt_err_t dev_vuart_init( rt_device_t dev )
     NVIC_InitStructure.NVIC_IRQChannelCmd					= ENABLE;
     NVIC_Init( &NVIC_InitStructure );
 
-    uart1_baud(115200);
+    uart1_baud(115200); 
 
     USART_Cmd( USART1, ENABLE );
     USART_ClearFlag(USART1, USART_FLAG_TC);//

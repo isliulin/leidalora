@@ -189,30 +189,6 @@ u8 RT_Total_Config(void)
 }
 
 /***********************************************RTC注册******************************************************/
-u8  rt_hw_rtc_init(void)
-{
-    u8  Resualt = 0;
-
-    rtc.type	= RT_Device_Class_RTC;
-
-    //表明RTC数据丢失，需要重新配置
-    Resualt = RT_Total_Config();
-
-    /* register rtc device */
-    rtc.init 	= RT_NULL;
-    rtc.open 	= rt_rtc_open;
-    rtc.close	= RT_NULL;
-    rtc.read 	= rt_rtc_read;
-    rtc.write	= RT_NULL;
-    rtc.control = rt_rtc_control;
-
-    /* no private */
-    //rtc.user_data = RT_NULL;
-
-    rt_device_register(&rtc, "rtc", RT_DEVICE_FLAG_RDWR);
-
-    return  Resualt;
-}
 
 /**********************************************************可调用标准函数接口*****************************************/
 
@@ -248,35 +224,6 @@ void set_date(rt_uint32_t year, rt_uint32_t month, rt_uint32_t date)
         rt_rtc_control(device, RT_DEVICE_CTRL_RTC_SET_DATE, &RTC_TimeStructure);
     }
 
-}
-
-u8  Device_RTC_set(TDateTime now)
-{
-    rt_device_t device;
-
-    RTC_DateStructure.RTC_Year = now.year;
-    RTC_DateStructure.RTC_Month = now.month;
-    RTC_DateStructure.RTC_Date = now.day;
-    RTC_DateStructure.RTC_WeekDay = now.week;
-
-
-
-    RTC_TimeStructure.RTC_Hours = now.hour;
-    RTC_TimeStructure.RTC_Minutes = now.min;
-    RTC_TimeStructure.RTC_Seconds 	= now.sec;
-
-    device = rt_device_find("rtc");
-    if (device != RT_NULL)
-    {
-        rt_rtc_control(device, RT_DEVICE_CTRL_RTC_SET_DATE, &RTC_DateStructure);
-
-        rt_rtc_control(device, RT_DEVICE_CTRL_RTC_SET_TIME, &RTC_TimeStructure);
-
-        return 1;
-
-    }
-
-    return 0;
 }
 
 

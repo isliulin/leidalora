@@ -33,11 +33,11 @@
 #define Dummy_Byte                    0xA5 //0xFF
 
 //  3.   PIN
-#define SST25V_CS_LOW()      GPIO_ResetBits(GPIOD,GPIO_Pin_14)
-#define SST25V_CS_HIGH()     GPIO_SetBits(GPIOD,GPIO_Pin_14)
+#define SST25V_CS_LOW()      GPIO_ResetBits(GPIOB,GPIO_Pin_12)       // PB12
+#define SST25V_CS_HIGH()     GPIO_SetBits(GPIOB,GPIO_Pin_12)
 
-#define SST25V_WP_HIGH()   GPIO_SetBits(GPIOD,GPIO_Pin_15)
-#define SST25V_WP_LOW()    GPIO_SetBits(GPIOD,GPIO_Pin_15)
+#define SST25V_WP_HIGH()   GPIO_SetBits(GPIOD,GPIO_Pin_8)    // PD8
+#define SST25V_WP_LOW()    GPIO_SetBits(GPIOD,GPIO_Pin_8)
 
 
 

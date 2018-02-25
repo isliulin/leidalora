@@ -3,181 +3,156 @@
 #include  <string.h>
 #include <./App_moduleConfig.h>
 
-unsigned char dispstat = 0;
 unsigned char tickcount = 0;
-unsigned int  reset_firstset = 0;
+u8  idle_coutner=0;
 
-unsigned char gsm_g[] =
-{
-    0x1c,					/*[   ***  ]*/
-    0x22,					/*[  *   * ]*/
-    0x40,					/*[ *      ]*/
-    0x40,					/*[ *      ]*/
-    0x4e,					/*[ *  *** ]*/
-    0x42,					/*[ *    * ]*/
-    0x22,					/*[  *   * ]*/
-    0x1e,					/*[   **** ]*/
-};
-
-unsigned char gsm_0[] =
-{
-    0x00,					/*[        ]*/
-    0x00,					/*[        ]*/
-    0x00,					/*[        ]*/
-    0x00,					/*[        ]*/
-    0x00,					/*[        ]*/
-    0x00,					/*[        ]*/
-    0x80,					/*[*       ]*/
-    0x80,					/*[*       ]*/
-};
-
-unsigned char gsm_1[] =
-{
-    0x00,					/*[        ]*/
-    0x00,					/*[        ]*/
-    0x00,					/*[        ]*/
-    0x00,					/*[        ]*/
-    0x20,					/*[  *     ]*/
-    0x20,					/*[  *     ]*/
-    0xa0,					/*[* *     ]*/
-    0xa0,					/*[* *     ]*/
-};
-
-unsigned char gsm_2[] =
-{
-    0x00,					/*[        ]*/
-    0x00,					/*[        ]*/
-    0x08,					/*[    *   ]*/
-    0x08,					/*[    *   ]*/
-    0x28,					/*[  * *   ]*/
-    0x28,					/*[  * *   ]*/
-    0xa8,					/*[* * *   ]*/
-    0xa8,					/*[* * *   ]*/
-};
-
-
-unsigned char gsm_3[] =
-{
-    0x02,					/*[      * ]*/
-    0x02,					/*[      * ]*/
-    0x0a,					/*[    * * ]*/
-    0x0a,					/*[    * * ]*/
-    0x2a,					/*[  * * * ]*/
-    0x2a,					/*[  * * * ]*/
-    0xaa,					/*[* * * * ]*/
-    0xaa,					/*[* * * * ]*/
-};
-
-unsigned char link_on[] =
-{
-    0x08,					/*[    *   ]*/
-    0x04,					/*[     *  ]*/
-    0xfe,					/*[******* ]*/
-    0x00,					/*[        ]*/
-    0xfe,					/*[******* ]*/
-    0x40,					/*[ *      ]*/
-    0x20,					/*[  *     ]*/
-    0x00,					/*[        ]*/
-};
-
-unsigned char link_off[] =
-{
-    0x10,					/*[   *    ]*/
-    0x08,					/*[    *   ]*/
-    0xc6,					/*[**   ** ]*/
-    0x00,					/*[        ]*/
-    0xe6,					/*[***  ** ]*/
-    0x10,					/*[   *    ]*/
-    0x08,					/*[    *   ]*/
-    0x00,					/*[        ]*/
-};
 static unsigned char Battery[] = {0x00, 0xFC, 0xFF, 0xFF, 0xFC, 0x00}; //8*6
-static unsigned char NOBattery[] = {0x04, 0x0C, 0x98, 0xB0, 0xE0, 0xF8}; //6*6
-static unsigned char TriangleS[] = {0x30, 0x78, 0xFC, 0xFC, 0x78, 0x30}; //6*6
-static unsigned char TriangleK[] = {0x30, 0x48, 0x84, 0x84, 0x48, 0x30}; //6*6
-
-
-static unsigned char empty[] = {0x84, 0x84, 0x84, 0x84, 0x84, 0xFC}; /*空车*/
-static unsigned char full_0[] = {0x84, 0x84, 0x84, 0xFC, 0xFC, 0xFC}; /*半满*/
-static unsigned char full_1[] = {0xFC, 0xFC, 0xFC, 0xFC, 0xFC, 0xFC}; /*重车*/
-
 
 //电池 是否校验特征系数的标志
 DECL_BMP(8, 6, Battery);
-DECL_BMP(6, 6, NOBattery);
-DECL_BMP(6, 6, TriangleS);
-DECL_BMP(6, 6, TriangleK);
-//信号强度标志
-DECL_BMP(7, 8, gsm_g);
-DECL_BMP(7, 8, gsm_0);
-DECL_BMP(7, 8, gsm_1);
-DECL_BMP(7, 8, gsm_2);
-DECL_BMP(7, 8, gsm_3);
-//连接或者在线标志
-DECL_BMP(7, 8, link_on);
-DECL_BMP(7, 8, link_off);
-//空车 半满 重车
-DECL_BMP(6, 6, empty);
-DECL_BMP(6, 6, full_0);
-DECL_BMP(6, 6, full_1);
+
 
 
 void GPSGPRS_Status(void)
 {
-    if(GpsStatus.Position_Moule_Status == 1)
-        lcd_text12(19, 0, "BD", 2, LCD_MODE_SET);
-    else if(GpsStatus.Position_Moule_Status == 2)
-        lcd_text12(19, 0, "GPS", 3, LCD_MODE_SET);
-    else if(GpsStatus.Position_Moule_Status == 3)
-        lcd_text12(19, 0, "G/B", 3, LCD_MODE_SET);
-    if(UDP_dataPacket_flag == 3)
-        lcd_bitmap(37, 2, &BMP_link_off, LCD_MODE_SET);
-    else if(UDP_dataPacket_flag == 2)
-        lcd_bitmap(37, 2, &BMP_link_on, LCD_MODE_SET);
 
-    lcd_text12(48, 0, "GPRS", 4, LCD_MODE_SET);
+}
+void Disp_Idle(void)    // test use
+{
+     u32 counter=0;
+   u8 i=0,j=0,spd=0;
+   u8 dispstr[40];
 
+    
+    Menu_Number=1; 
 
+	spd=LORA_RUN.ComeSPD; 
+	counter=LORA_RUN.RX_MSG_ID;
+	
+	if((spd >= 100) && (spd < 999))
+	{
+		Dis_speDer[1] = spd / 100 + '0';
+		Dis_speDer[2] = (spd % 100) / 10 + '0';
+		Dis_speDer[3] = spd % 10 + '0';
+	
+	
+	}
+	else if((spd >= 10) && (spd < 100))
+	{
+		Dis_speDer[1] = ' ';
+		Dis_speDer[2] = (spd / 10) + '0';
+		Dis_speDer[3] = spd % 10 + '0';
+	}
+	else if(spd < 10)
+	{
+		Dis_speDer[1] = ' ';
+		Dis_speDer[2] = ' ';
+		Dis_speDer[3] = spd % 10 + '0';
+	}
+   
+  // LCD_DISP_CHINESE_TXT(0, 2,"天津七一二",5);
+   LCD_DISP_8x16_TXT(0, 4,"LORA", 4);    
+   LCD_DISP_CHINESE_TXT(0, 4,"便携终端", 8);   
+  // LCD_DISP_8x16_TXT(30, 0,Dis_speDer, 18);
+    // 方向
+   if((strlen(LORA_RUN.ComeDirectStr))&&(LORA_RUN.Come_state==1)) 
+            LCD_DISP_CHINESE_TXT(1, 2,LORA_RUN.ComeDirectStr, 12);  
+   else 
+   	        LCD_DISP_8x16_TXT(16, 0,"                    ", 20);   
+   
+   if(LORA_RUN.Come_state==1)
+   	{
+	   idle_coutner++;
+	   if(idle_coutner>12)
+	   	{
+	   	  LORA_RUN.Come_state=0;
+		  idle_coutner=0;
+	   	}  
+   	}
+   //  速度
+   LCD_DISP_8x16_TXT(34, 6,Dis_speDer, 18);
 
+   // RXID
+   memset(dispstr,0,sizeof(dispstr));	 
+   sprintf(dispstr,"CH:%d MSGID:%d   ",Lora_config_CMD[4],counter);
+   LCD_DISP_8x8_TXT(55,1,dispstr,strlen(dispstr));   
 
-    if(DEV_Login.Operate_enable == 2)
-        lcd_bitmap(72, 2, &BMP_link_on, LCD_MODE_SET);
-    else
-        lcd_bitmap(72, 2, &BMP_link_off, LCD_MODE_SET);
+   
 
-    //车辆载重标志   // 改成 TF 卡插入状态指示
-#ifdef TFCARD
-    if(sd_ok == 1)
-    {
-        lcd_bitmap(95, 2, &BMP_full_1, LCD_MODE_SET);
-    }
-    else
-    {
-        lcd_bitmap(95, 2, &BMP_empty, LCD_MODE_SET);
-    }
-#endif
-
-    /*
-    if(JT808Conf_struct.LOAD_STATE==1)
-    	lcd_bitmap(95,2,&BMP_empty, LCD_MODE_SET);
-    else if(JT808Conf_struct.LOAD_STATE==2)
-    	lcd_bitmap(95,2,&BMP_full_0, LCD_MODE_SET);
-    else if(JT808Conf_struct.LOAD_STATE==3)
-    	lcd_bitmap(95,2,&BMP_full_1, LCD_MODE_SET);
-    */
-     if(Oil.oil_YH_workstate) 
-      	lcd_bitmap(95,2,&BMP_full_0, LCD_MODE_SET);
-
-    //电源标志
-    if(ModuleStatus & 0x04)
-        lcd_bitmap(105, 2, &BMP_Battery, LCD_MODE_SET);
-    else
-        lcd_bitmap(105, 2, &BMP_NOBattery, LCD_MODE_SET);
+   if(SysConf_struct.RTC_updated==0)
+   	{ 
+      LCD_DISP_8x8_TXT(73,0,"Time not calibrated ",20);  
+   	}
+   else
+   	{
+       memset(dispstr,0,sizeof(dispstr));    
+	   sprintf(dispstr,"      %02X:%02X:%02X      ",rtc_current.BCD_6_Bytes[3],rtc_current.BCD_6_Bytes[4],rtc_current.BCD_6_Bytes[5]);
+       LCD_DISP_8x8_TXT(73,0,dispstr,20);  
+   }
 
 
 }
+
+#if 0
 void  Disp_Idle(void)
 {
+  
+   u32 counter=0;
+   u8 i=0,j=0,spd=0;
+   u8 dispstr[40];
+
+	spd=LORA_RUN.ComeSPD;
+	counter=LORA_RUN.RX_MSG_ID;
+	
+	if((spd >= 100) && (spd < 999))
+	{
+		Dis_speDer[1] = spd / 100 + '0';
+		Dis_speDer[2] = (spd % 100) / 10 + '0';
+		Dis_speDer[3] = spd % 10 + '0';
+	
+	
+	}
+	else if((spd >= 10) && (spd < 100))
+	{
+		Dis_speDer[1] = ' ';
+		Dis_speDer[2] = (spd / 10) + '0';
+		Dis_speDer[3] = spd % 10 + '0';
+	}
+	else if(spd < 10)
+	{
+		Dis_speDer[1] = ' ';
+		Dis_speDer[2] = ' ';
+		Dis_speDer[3] = spd % 10 + '0';
+	}
+
+  // LCD_DISP_CHINESE_TXT(0, 2,"天津七一二",5);
+   LCD_DISP_8x16_TXT(0, 4,"LORA", 4);    
+   LCD_DISP_CHINESE_TXT(0, 4,"便携终端", 8);   
+  // LCD_DISP_8x16_TXT(30, 0,Dis_speDer, 18);
+    // 方向
+   if(strlen(LORA_RUN.ComeDirectStr))
+            LCD_DISP_CHINESE_TXT(1, 2,LORA_RUN.ComeDirectStr, 12); 
+   //  速度
+   LCD_DISP_8x16_TXT(34, 6,Dis_speDer, 18);
+
+   // RXID
+   memset(dispstr,0,sizeof(dispstr));	 
+   sprintf(dispstr,"     MSGID:%06d   ",counter);
+   LCD_DISP_8x8_TXT(55,0,dispstr,20);  
+
+   
+
+   if(SysConf_struct.RTC_updated==0)
+   	{ 
+      LCD_DISP_8x8_TXT(73,0,"Time not calibrated ",20);  
+   	}
+   else
+   	{
+       memset(dispstr,0,sizeof(dispstr));    
+	   sprintf(dispstr,"      %02X:%02X:%02X      ",rtc_current.BCD_6_Bytes[3],rtc_current.BCD_6_Bytes[4],rtc_current.BCD_6_Bytes[5]);
+       LCD_DISP_8x8_TXT(73,0,dispstr,20);  
+   }
+ #if 0
     u8 i = 0;
     u16  disp_spd = 0;
     u8  Date[3], Time[3];
@@ -212,83 +187,134 @@ void  Disp_Idle(void)
 #endif
     //--------------------------------------------------------------------
     // if((disp_spd>=100)&&(disp_spd<200))
+   if(SysConf_struct.LORA_TYPE==LORA_RADRCHECK)   
+   {
+	    disp_spd=_485_speed;
+	    if((disp_spd >= 100) && (disp_spd < 999))
+	    {
+	        Dis_speDer[1] = disp_spd / 100 + '0';
+	        Dis_speDer[2] = (disp_spd % 100) / 10 + '0';
+	        Dis_speDer[3] = disp_spd % 10 + '0';
 
-    if((disp_spd >= 100) && (disp_spd < 999))
-    {
-        Dis_speDer[1] = disp_spd / 100 + '0';
-        Dis_speDer[2] = (disp_spd % 100) / 10 + '0';
-        Dis_speDer[3] = disp_spd % 10 + '0';
 
-
-    }
-    else if((disp_spd >= 10) && (disp_spd < 100))
-    {
-        Dis_speDer[1] = ' ';
-        Dis_speDer[2] = (disp_spd / 10) + '0';
-        Dis_speDer[3] = disp_spd % 10 + '0';
-    }
-    else if(disp_spd < 10)
-    {
-        Dis_speDer[1] = ' ';
-        Dis_speDer[2] = ' ';
-        Dis_speDer[3] = disp_spd % 10 + '0';
-    }
-
+	    }
+	    else if((disp_spd >= 10) && (disp_spd < 100))
+	    {
+	        Dis_speDer[1] = ' ';
+	        Dis_speDer[2] = (disp_spd / 10) + '0';
+	        Dis_speDer[3] = disp_spd % 10 + '0';
+	    }
+	    else if(disp_spd < 10)
+	    {
+	        Dis_speDer[1] = ' ';
+	        Dis_speDer[2] = ' ';
+	        Dis_speDer[3] = disp_spd % 10 + '0';
+	    }
+   	}
     //---------------方向-----------------------------
     memset(Dis_speDer + 10, ' ', 10); // 初始化为空格
 
 
 
     //--------------------------------------------------
-    lcd_fill(0);
-	    //--------------------------------------------------
-             switch(SysConf_struct.LORA_TYPE)
-         	{
-         	   case LORA_RELAYSTAION:    //  中继
-                                          lcd_text12(0, 0, "Relay Station", 13, LCD_MODE_SET);
-			                             break;
-			   case LORA_RADRCHECK:    //  雷达监测点
-                                          lcd_text12(0, 0, "Radar Check", 11, LCD_MODE_SET);  
-			                             break;
-			   case LORA_ENDPLAY:      //   道口播放点
-                                          lcd_text12(0, 0, "Road Play", 9, LCD_MODE_SET);    
-			                             break;		
-			   default: break;			 
+   // LCD_DISP_Clear();
+	
 
-         	}
-	lcd_text12(112, 0, (char *)&UDP_dataPacket_flag, 1, LCD_MODE_SET);
-    lcd_text12(0, 12, (char *)Dis_date, 20, LCD_MODE_SET);
-#if   0	
-    lcd_text12(0, 20, (char *)Dis_speDer, 18, LCD_MODE_SET);
-
-    lcd_bitmap(0, 3, &BMP_gsm_g, LCD_MODE_SET);
-
-    // ---------- GSM 信号--------
-    if(ModuleSQ > 26)   //31/4
-        lcd_bitmap(8, 3, &BMP_gsm_3, LCD_MODE_SET);
-    else if(ModuleSQ > 18)
-        lcd_bitmap(8, 3, &BMP_gsm_2, LCD_MODE_SET);
-    else if(ModuleSQ > 9)
-        lcd_bitmap(8, 3, &BMP_gsm_1, LCD_MODE_SET);
-    else
-        lcd_bitmap(8, 3, &BMP_gsm_0, LCD_MODE_SET);
+   // lcd_text12(0, 12, (char *)Dis_date, 20, 1);   
+       //LCD_DISP_8x8_TXT(0, 10, (char*)LORA_RUN.Tx_Disp, 18);   
+       LCD_DISP_8x8_TXT(0, 20, (char *)Dis_speDer, 18);
 
 
-    GPSGPRS_Status();
+     // const  disp  
+     LCD_DISP_8x16_TXT(0, 32, "TCB712",6);   
+	 LCD_DISP_CHINESE_TXT(0, 52,"天津通广移动部", 14);   
+
+   #endif
+
+ //----  Disp DEMO -----  
+   //LCD_DISP_8x16_TXT(0, 16, "TCB712wxdhsyb+TCB712wxdhsyb",27);  //---OK
+   //LCD_DISP_8x8_TXT(42,16,"LNWNATHAN@712.cn+LNWNATHAN@712.cn+LNWNATHAN@712.cn",50); //OK
+   //LCD_DISP_CHINESE_TXT(0, 2,"天津通广移动部", 14);    
+   //LCD_DISP_CHINESE_TXT(2, 4,"天津七一二通信股份有限公司天津七一二通信股份有限公司", 52);    
+
+ #if     0   // 汉字显示  
+   LCD_DISP_CHINESE_Char(0x00,0,0xC7E7);
+  // delay_ms(3);
+   LCD_DISP_CHINESE_Char(0x01,0,0xD0E8);
+   //delay_ms(3);
+   LCD_DISP_CHINESE_Char(0x02,0x00,0xC7E9);
+   // delay_ms(3);
+   LCD_DISP_CHINESE_Char(0x03,0x01,0xCDA8);
+   // delay_ms(3);
+   LCD_DISP_CHINESE_Char(0x04,0x01,0xB9E3);
+
+   LCD_DISP_CHINESE_Char(0x00,0x02,0xCDA8);
+   // delay_ms(3);
+   LCD_DISP_CHINESE_Char(0x00,0x03,0xB9E3); 
+   LCD_DISP_CHINESE_Char(0x00,0x04,0xB9E3); 
+
+
+   LCD_DISP_CHINESE_Char(0x08,0x00,0xC7E9);
+   LCD_DISP_CHINESE_Char(0x09,0x00,0xC7E9);
+   LCD_DISP_CHINESE_Char(0x09,0x04,0xC7E9);
 #endif
-    lcd_update_all();
+
+
+#if   0    //  8x8 ascii
+    LCD_DISP_ASCII_8X8Char(0,0,'A');  
+    LCD_DISP_ASCII_8X8Char(0,15,'B');  
+    LCD_DISP_ASCII_8X8Char(15,0,'C'); 
+	LCD_DISP_ASCII_8X8Char(14,0,'D');  
+	 LCD_DISP_ASCII_8X8Char(18,73,'Z'); 
+	LCD_DISP_ASCII_8X8Char(19,73,'W');  
+#endif
+
+
+
+#if  0  //  8x16  ascii
+    LCD_DISP_ASCII_8X16Char(0,0,'A');  
+    LCD_DISP_ASCII_8X16Char(0,15,'B');  
+	LCD_DISP_ASCII_8X16Char(11,32,'M');  
+    LCD_DISP_ASCII_8X16Char(15,0,'C'); 
+	LCD_DISP_ASCII_8X8Char(14,0,'D');  
+	LCD_DISP_ASCII_8X16Char(18,66,'Z');  
+	LCD_DISP_ASCII_8X16Char(19,64,'W');  
+
+#endif
+
+
+ #if  0          //画图
+  for(i=0;i<20;i++)
+  {
+     for(j=0;j<i;j++)
+       LCD_DISP_BitLatice(i,j);
+
+  }
+#endif 
+
+  /*
+  for(i=0;i<20;i++)
+  {
+     for(j=0;j<i;j++)
+       LCD_DISP_ByteLatice(i+30,j+30,1);
+
+  }
+   */
+  // delay_ms(20);
+  // LCD_DISP_ASCII_8X16Char(20,35,'M');
+  //  LCD_DISP_ASCII_8X16Char(40,35,'W');
+ 
+   
 }
+
+#endif
+
 static void msg( void *p)
 {
 }
 static void show(void)
-{
-    MenuIdle_working = 0; //clear
-    MenuIdle_working = 0; // enable
-    
-    
+{ 
     Disp_Idle();
-    reset_firstset = 0;
 }
 
 
@@ -297,108 +323,51 @@ static void keypress(unsigned int key)
     switch(KeyValue)
     {
     case KeyValueMenu:
-             Dis_deviceid_flag = 0;
-        CounterBack = 0;
-        SetVIN_NUM = 1;
-        OK_Counter = 0;
-
-        CounterBack = 0;
-        UpAndDown = 1; //
-
-		if(Menu_txt_state==6)
-			 Menu_txt_state=7;
-        reset_firstset = 0;
-        break;
+		   rt_kprintf("\r\n==> Idle 菜单");
+	       break;
     case KeyValueOk:  
-           LORA_RUN.SD_Enable=1;
+           rt_kprintf("\r\n==> Idle OK 确认");
         break;
     case KeyValueUP:
-        Dis_deviceid_flag = 0;
-        if(reset_firstset == 1)
-            reset_firstset = 2;
-        else if(reset_firstset == 2)
-            reset_firstset = 3;
-        else if(reset_firstset == 5)
-            reset_firstset = 6;
-        else    // add later
-            reset_firstset = 0;
+		   rt_kprintf("\r\n==> Idle 向上");
         break;
     case KeyValueDown:
-        Dis_deviceid_flag = 0;
-        if(reset_firstset == 0)
-            reset_firstset = 1;
-        else if(reset_firstset == 3)
-            reset_firstset = 4;
-        else if(reset_firstset == 4)
-            reset_firstset = 5;
-        else	// add later
-            reset_firstset = 0;
+		  rt_kprintf("\r\n==>Idle 向下");
 
-        break;
+          break;
+     case KeyValueQuit:
+             rt_kprintf("\r\n==>Idle 退出--网络巡检");
+			 LCD_DISP_Clear();
+			 pMenuItem = &Menu_3_detect;
+             pMenuItem->show();
+              break;
+	   case KeyValueApp:	
+             rt_kprintf("\r\n==>Idle 应用-手动send");
+			 LCD_DISP_Clear();
+			 pMenuItem = &Menu_2_handle;
+             pMenuItem->show();
+		      break;
+		
     }
     KeyValue = 0;
 }
 
 static void timetick(unsigned int systick)
 {
-    //u8 Reg_buf[22];
-    if((OverTime_before) || (OverTime_after) || (OverTime_before_Nobody) || (OverSpeed_approach) || (OverSpeed_flag) || (SpeedStatus_abnormal))
-    {
-        CounterBack++;
-        if(CounterBack >= 20) //250ms  执行周期   4=1s
-        {
-            CounterBack = 0;
-            OverTime_before = 0;
-            OverTime_after = 0;
-            OverTime_before_Nobody = 0;
-            OverSpeed_approach = 0;
-            OverSpeed_flag = 0;
-            SpeedStatus_abnormal = 0;
-			
-        }
-        return;
 
-    }
-    if(reset_firstset == 6)
-    {
-        reset_firstset++;
-        //----------------------------------------------------------------------------------
-        Login_Menu_Flag = 0;   //  输入界面为0
-        //----------------------------------------------------------------------------------
-    }
-    else if(reset_firstset >= 7) //50ms一次,,60s
-    {
-        reset_firstset++;
-        lcd_fill(0);
-        lcd_text12(0, 3, "需重新设置车牌号和ID", 20, LCD_MODE_SET);
-        lcd_text12(24, 18, "重新加电查看", 12, LCD_MODE_SET);
-        lcd_update_all();
-    }
-    else if(Dis_deviceid_flag >= 2)
-    {
-        Dis_deviceid_flag++;
-        if(Dis_deviceid_flag >= 50)
-            Dis_deviceid_flag = 0;
-    }
-    else
-    {
          //循环显示待机界面
         tickcount++;
-        if(tickcount >= 5)
+        if(tickcount >= 5)//5
         {
             tickcount = 0;
             Disp_Idle();
         }
-    }
-
-    Cent_To_Disp();
-
 }
 
 ALIGN(RT_ALIGN_SIZE)
 MENUITEM	Menu_1_Idle =
 {
-    "待机界面",
+    "Menu_idle",
     8,
     &show,
     &keypress,

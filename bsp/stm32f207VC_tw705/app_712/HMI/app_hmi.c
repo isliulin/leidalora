@@ -17,18 +17,6 @@
 #include "Usbh_conf.h"
 
 
-unsigned char dayin_data_time[35] = {"\r\n打印时间:                    \r\n"};
-unsigned char dayin_chepaihaoma[26] = {"\r\n机动车号牌号码:00000000"};
-unsigned char dayin_chepaifenlei[25] = {"\r\n机动车号牌分类:000000"};
-unsigned char dayin_cheliangVIN[32] = {"\r\n车辆VIN:00000000000000000"};
-//unsigned char dayin_driver_NUM[40]={"驾驶员姓名:000000000000000000000"};
-unsigned char dayin_driver_NUM[40] = {"\r\n驾驶员姓名:000000"};
-unsigned char dayin_driver_card[50] = {"\r\n机动车驾驶证号码:\r\n   000000000000000000"};
-static struct rt_messagequeue	HMI_MsgQue;
-
-void Dayin_Fun(u8 dayin_par)
-{
-}
 
 
 
@@ -48,17 +36,16 @@ static void HMI_thread_entry(void *parameter)
     delay_ms(500);
     DF_init();
     SysConfiguration();    // system config
+    
+	//------ RTC 8546  chip   Init
+    RTC_8564_IIC_INIT();
+    RTC8564_Init();
+		
     DF_initOver = 1;
    // Gsm_RegisterInit(); 	//	init register states	,then  it  will  power on  the module
    // SIMID_Convert_SIMCODE(); //   translate
-
-#ifdef  TFCARD
-    TF_Init();
-#endif
-
-
+      loramodule_get();  
     //-----------------------------------------------------------------
-
 
         pMenuItem = &Menu_1_Idle;
         pMenuItem->show();
@@ -67,12 +54,26 @@ static void HMI_thread_entry(void *parameter)
 	
     while (1)
     {
-        pMenuItem->timetick( 10 );
-        pMenuItem->keypress(10);
+         pMenuItem->timetick( 10 );
+         pMenuItem->keypress(10);
 
-		
 		//   Lora_TX_process
          LoRA_TX_Process();   		
+
+	     		
+		//_485_process();
+	    	
+		if(Menu_Number!=3)
+			{ 
+                  LORA_RUN.SD_waitACK_Flag=0;
+		          LORA_RUN.ACK_index=0; 
+			}
+		else
+		if(Menu_Number!=2)
+		{
+              LORA_RUN.TX_MSG_ID=0;// clear
+              _485_speed=0;
+		}
         //--------------------------------------------
         rt_thread_delay(25);     //25
     }

@@ -8,10 +8,6 @@ struct rt_semaphore sem_DF;
 static u8  OneSectorReg[4096];
 u8	  reg_4096[4096];
 
-#ifdef TFCARD     // 使能TF 卡
-#define SDCARD_CS_PORT				GPIOA
-#define SDCARD_CS_PIN				GPIO_Pin_4
-#endif
 
 
 void SST25V_DBSY(void);
@@ -60,8 +56,18 @@ void SST25V_Init(void)
 
 
 
-    //-------  CS _pin
-    GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_14;
+    //-------  CS _pin    PB12
+    GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_12;
+    GPIO_InitStructure.GPIO_Mode  =  GPIO_Mode_OUT;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
+    GPIO_Init(GPIOB, &GPIO_InitStructure);
+
+
+
+    //-------  WP  _pin     PD8
+    GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_8;
     GPIO_InitStructure.GPIO_Mode  =  GPIO_Mode_OUT;
     GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
@@ -69,24 +75,6 @@ void SST25V_Init(void)
     GPIO_Init(GPIOD, &GPIO_InitStructure);
 
 
-
-    //-------  WP  _pin
-    GPIO_InitStructure.GPIO_Pin   = GPIO_Pin_15;
-    GPIO_InitStructure.GPIO_Mode  =  GPIO_Mode_OUT;
-    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
-
-
-#ifdef TFCARD
-
-    //SD CARD   CS _pin,默认不使能
-    GPIO_InitStructure.GPIO_Pin		= SDCARD_CS_PIN;
-    GPIO_Init( SDCARD_CS_PORT, &GPIO_InitStructure );
-    GPIO_SetBits(SDCARD_CS_PORT, SDCARD_CS_PIN);
-
-#endif
 
     /*------------------------ DF_SPI configuration ------------------------*/
     SPI_InitStructure.SPI_Direction = SPI_Direction_2Lines_FullDuplex;//SPI_Direction_1Line_Tx;
@@ -403,7 +391,6 @@ rt_err_t  Sem_Dataflash_Take(void)
     res = rt_sem_take( &sem_DF, 5000 ); // 5S
     if(res != RT_EOK)
     {
-        if(DispContent)
             rt_kprintf("\r\n  DF take fail \r\n");
     }
     return res;

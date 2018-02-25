@@ -30,12 +30,10 @@ extern RTC_TimeTypeDef RTC_TimeStructure;
 extern RTC_DateTypeDef RTC_DateStructure;
 
 
-u8  rt_hw_rtc_init(void);
 void set_time(rt_uint32_t hour, rt_uint32_t minute, rt_uint32_t second);
 void set_date(rt_uint32_t year, rt_uint32_t month, rt_uint32_t date);
 extern TDateTime  Get_RTC(void);
 extern u8    Set_RTC( TDateTime now);
-extern u8    Device_RTC_set(TDateTime now);
 extern int   RTC_Config(void);
 extern u8 RT_Total_Config(void);
 

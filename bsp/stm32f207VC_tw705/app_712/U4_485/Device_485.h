@@ -20,7 +20,7 @@
 #define  Power_485CH1_ON     ;// GPIO_SetBits(GPIOB,GPIO_Pin_8)  // 第一路485的电	       上电工作
 #define  Power_485CH1_OFF    ;//GPIO_ResetBits(GPIOB,GPIO_Pin_8)
 
-#define _485_dev_SIZE   600
+#define _485_dev_SIZE   100
 #define  normal                 2
 
 typedef  struct _485_REC
@@ -37,7 +37,7 @@ extern u8   Fectch_photo[10];   //----- 报警取图命令
 
 extern u8 	 _485_content[200];
 extern u16	 _485_content_wr;
-extern u8    _485_CameraData_Enable;// 有图片数据过来	1: data come  0:   no data
+extern u8	_485_speed;
 
 extern  _485REC_Struct 	 _485_RXstatus;
 
@@ -54,6 +54,7 @@ extern void _485_delay_ms(u16 j);
 extern void _485_startup(void);
 extern  void rt_hw_485_putc(const char c);
 extern void rt_hw_485_Output_Data(const char *Instr, unsigned int len) ;
+extern void _485_process(void);
 
 #endif
 

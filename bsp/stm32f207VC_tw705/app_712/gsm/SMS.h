@@ -5,7 +5,7 @@
 #include "SMS_PDU.h"
 
 
-#define  SMS_ENABLE
+//#define  SMS_ENABLE
 
 #define  SMS_ACK_msg          1      // 需哟返回短息
 #define  SMS_ACK_none         0      // 不需要返回短息

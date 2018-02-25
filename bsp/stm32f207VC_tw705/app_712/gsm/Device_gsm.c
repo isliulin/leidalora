@@ -41,11 +41,11 @@ flash char  Signal_Intensity_str[] = "AT+CSQ\r\n"; // 信号强度 ，常用
 flash char  CommAT_Str1[] = "ATV1\r\n";
 flash char  CommAT_Str2[] = "ATE0\r\n";
 flash char  CommAT_Str3[] = "AT+COPS?\r\n";
-flash char  CommAT_Str4[] = "AT%SNFS=1\r\n";         // 设置音频输出通道选择 第二路
+flash char  CommAT_Str4[] = "AT%SNFS=0\r\n";         // 设置音频输出通道选择 第二路
 flash char  CommAT_Str5[] = "AT%NFI=1,10,0,0\r\n"; // 设置音频输入通道 选择第 二路
 flash char  CommAT_Str6[] = "AT+CLVL=6\r\n";
 flash char  CommAT_Str7[] = "AT%NFV=5\r\n"; // 扬声器设置  --没有音频功放 没用
-flash char  CommAT_Str8[] = "AT%NFO=1,6,0\r\n"; //设置输出音量
+flash char  CommAT_Str8[] = "AT%NFO=0,6,0\r\n"; //设置输出音量
 flash char  CommAT_Str9[] = "AT%VLB=1\r\n"; //ATI
 flash char  CommAT_Str10[] = "AT%NFW=1\r\n";  //   保存音频设置
 flash char  CommAT_Str11[] = "AT+CGMR\r\n"; //"AT%RECFDEL\r\n";//"AT\r\n"; //
@@ -176,7 +176,7 @@ u8    TTS_Get_Data(u8 *Instr, u16 LEN)    //  return   0   : OK     return   1 :
         TTS_Var.HEX_len = LEN;
         memcpy(TTS_Var.HEX_BUF, Instr, LEN);
         TTS_Var.Save = 1;
-		rt_kprintf("TTS_NOT Ready now ,save first\r\n");
+		rt_kprintf("\r\nTTS_NOT Ready now ,save first\r\n");
         return  TTS_BUSY;
 
     }
@@ -225,11 +225,13 @@ u8    TTS_Data_Play(void)
     if( TTS_Var.NeedtoPlay	== 1 ) // 为了减小大电流，打印时候不播报
     {
         Speak_ON;   // 开功放
+        SPEAK_SHDN_ON; // 升压
+        Enable_Relay();//开灯 
         TTS_Var.Playing = 1;
         //  head
         memset(AT_TTS, 0, sizeof(AT_TTS));
 
-            strcat(AT_TTS, "AT%TTS=2,3,6,\"");
+            strcat(AT_TTS, "AT%TTS=2,3,3,\"");
         TTS_Len = strlen(AT_TTS)	;
         //  info
         memcpy(AT_TTS + TTS_Len, TTS_Var.ASCII_BUF, TTS_Var.ASCII_Len);
@@ -263,6 +265,8 @@ void   TTS_Play_End(void)
     TTS_Var.TimeCounter = 0;
 
     Speak_OFF;	   // 关闭功放
+    SPEAK_SHDN_OFF;
+    Disable_Relay();// 关灯
 }
 void TTS_Exception_TimeLimt(void)     //  单位: s
 {
@@ -275,6 +279,8 @@ void TTS_Exception_TimeLimt(void)     //  单位: s
             TTS_Var.Playing = 0;
             TTS_Var.TimeCounter = 0;
             Speak_OFF;
+			SPEAK_SHDN_OFF;
+			Disable_Relay();// 关灯
         }
     }
 }
@@ -325,36 +331,6 @@ void AT_cmd_send_TimeOUT(void)
         }
     }
 }
-
-void GSM_CSQ_timeout(void)
-{
-    CSQ_counter++;
-    if(CSQ_counter >= CSQ_Duration)
-    {
-        CSQ_counter = 0;
-        CSQ_flag = 1;
-    }
-
-}
-
-u8 GSM_CSQ_Query(void)
-{
-    if((GSM_PWR.GSM_power_over > 0) && (GSM_PWR.GSM_power_over <= 2))
-    {
-        if((CSQ_flag == 1) && (MediaObj.Media_transmittingFlag == 0))
-        {
-            CSQ_flag = 0;
-            delay_ms(100);
-            rt_hw_gsm_output("AT+CSQ\r\n");    //检查信号强度
-            if(GB19056.workstate == 0)
-                rt_kprintf("AT+CSQ\r\n");
-            return true;
-        }
-    }
-    return false;
-}
-
-
 
 
 //-------------------------------------------------------------------------------
@@ -756,7 +732,6 @@ void  Data_Send(u8 *DataStr, u16  Datalen, u8  Link_Num)
         packet_len += 3;
 
         // 4.2 发送信息内容1
-        //   if(DispContent==2)
         if(GB19056.workstate == 0) // 拍照时不输出相关信息
         {
             for(i = 0; i < packet_len; i++)
@@ -825,22 +800,7 @@ void End_Datalink(void)
 
 }
 
-void  ISP_Timer(void)
-{
-    if((BD_ISP.ISP_running == 1) && DataLink_Status())
-    {
-        BD_ISP.ISP_runTimer++;
-        if(BD_ISP.ISP_runTimer > 350)
-        {
-            BD_ISP.ISP_runTimer = 0;
-            BD_ISP.ISP_running = 0; //  clear
-            SD_ACKflag.f_BD_ISPResualt_0108H = 2;
-            rt_kprintf("\r\n 升级下发超时，升级失败\r\n");
 
-        }
-    }
-
-}
 
 u8  GPRS_GSM_PowerON(void)
 {
@@ -856,24 +816,23 @@ u8  GPRS_GSM_PowerON(void)
      //----- Power On  operation   ---
 	 if((GSM_PWR.GSM_powerCounter >= 10) && (GSM_PWR.GSM_powerCounter < 30))
 	 {
-		 GPIO_ResetBits(GPIOD, GPRS_GSM_Power);   // 关电
-		 GPIO_ResetBits(GPIOD, GPRS_GSM_PWKEY); 	 //  PWK 低
+		 GPIO_ResetBits(GPIOC, GPRS_GSM_Power);   // 关电
+		 GPIO_ResetBits(GPIOA, GPRS_GSM_PWKEY); 	 //  PWK 低
 	 
 	 }
 	 if((GSM_PWR.GSM_powerCounter >= 30) && (GSM_PWR.GSM_powerCounter < 40))
 	 {
-		 GPIO_SetBits(GPIOD, GPRS_GSM_Power);	 //  开电
-		 GPIO_SetBits(GPIOD, GPRS_GSM_PWKEY);  //  PWK低
-		 gps_onoff(1);	// Gps module Power on	 GPS 模块开电
+		 GPIO_SetBits(GPIOC, GPRS_GSM_Power);	 //  开电
+		 GPIO_SetBits(GPIOA, GPRS_GSM_PWKEY);  //  PWK低
 	 }
 	 if((GSM_PWR.GSM_powerCounter >= 40) && (GSM_PWR.GSM_powerCounter < 70))
 	 {
-		 GPIO_SetBits(GPIOD, GPRS_GSM_Power);	//	开电
-		 GPIO_SetBits(GPIOD, GPRS_GSM_PWKEY);  //  PWK低
+		 GPIO_SetBits(GPIOC, GPRS_GSM_Power);	//	开电
+		 GPIO_SetBits(GPIOA, GPRS_GSM_PWKEY);  //  PWK低
 	 }
 	 if((GSM_PWR.GSM_powerCounter >= 70) && (GSM_PWR.GSM_powerCounter < 80))
 	 {
-		 GPIO_ResetBits(GPIOD, GPRS_GSM_PWKEY); 	 //  PWK 高
+		 GPIO_ResetBits(GPIOA, GPRS_GSM_PWKEY); 	 //  PWK 高
 	 }
 	 if(GSM_PWR.GSM_powerCounter >= 90)
 	 {
@@ -902,14 +861,14 @@ void GPRS_GSM_PowerOFF_Working(void)
 
     if(GSM_PWR.GSM_powerCounter <= 3)
     {
-        GPIO_SetBits(GPIOD, GPRS_GSM_Power);   //  开电
-        GPIO_SetBits(GPIOD, GPRS_GSM_PWKEY);     //  PWK 低
+        GPIO_SetBits(GPIOC, GPRS_GSM_Power);   //  开电
+        GPIO_SetBits(GPIOA, GPRS_GSM_PWKEY);     //  PWK 低
         //	   rt_kprintf("\r\n 关电 --低 300ms\r\n");
     }
     if((GSM_PWR.GSM_powerCounter > 3) && (GSM_PWR.GSM_powerCounter <= 20))
     {
-        GPIO_SetBits(GPIOD, GPRS_GSM_Power);   //  开电
-        GPIO_ResetBits(GPIOD, GPRS_GSM_PWKEY);     //  PWK 高
+        GPIO_SetBits(GPIOC, GPRS_GSM_Power);   //  开电
+        GPIO_ResetBits(GPIOA, GPRS_GSM_PWKEY);     //  PWK 高
         //  rt_kprintf("\r\n 关电 --高\r\n");
     }
 
@@ -1041,7 +1000,6 @@ void GSM_Module_TotalInitial(u8 Invalue)
                 CommAT.Initial_step++;
                 break;
             case 20:/*开始能拨号*/
-                //if((DispContent) && (GB19056.workstate == 0))
                   //  rt_kprintf("AT_Start\r\n");
                   
                 CommAT.Initial_step = 0;
@@ -1413,11 +1371,10 @@ static void GSM_Process(u8 *instr, u16 len)
     u16  i = 0, j = 0, q = 0; //,len=0;//j=0;
     u8 reg_str[80];
     //----------------------  Debug -------------------------
-    // if(DispContent==2)
     memset(GSM_rx, 0, sizeof((const char *)GSM_rx));
     memcpy(GSM_rx, instr, len);
 
-    if((BD_ISP.ISP_running == 0) && (GB19056.workstate == 0))
+    if( (GB19056.workstate == 0))
     {
         rt_kprintf("\r\n");
         for(i = 0; i < len; i++)
@@ -1461,6 +1418,8 @@ static void GSM_Process(u8 *instr, u16 len)
         if(GB19056.workstate == 0)
             rt_kprintf("\r\n   TTS  播放完毕\r\n");
         Speak_OFF;
+		SPEAK_SHDN_OFF;
+		Disable_Relay();// 关灯
     }
 
 #ifdef  SMS_ENABLE
@@ -1591,7 +1550,7 @@ static void GSM_Process(u8 *instr, u16 len)
         {
             rt_hw_gsm_output("ATH\r\n");
             DataLink_EndFlag = 1;
-            DEV_Login.Operate_enable = 1; //重新鉴权
+        
         }
 
     }
@@ -1633,7 +1592,7 @@ static void GSM_Process(u8 *instr, u16 len)
           {
           }
 		  else
-		  if((DispContent) && (GB19056.workstate == 0))
+		  if( (GB19056.workstate == 0))
             rt_kprintf("  need to update uninet\r\n");   
 
             //联通的
@@ -1646,7 +1605,7 @@ static void GSM_Process(u8 *instr, u16 len)
           {
           }		
 		 else
-		 if((DispContent) && (GB19056.workstate == 0))
+		 if((GB19056.workstate == 0))
 					rt_kprintf("  need to update cmnet\r\n");	 
 
             // 移动的
@@ -1672,7 +1631,7 @@ static void GSM_Process(u8 *instr, u16 len)
     else if(strncmp((char *)GSM_rx, "OK", 2) == 0)
     {
         ok = true;
-        if((DispContent) && (GB19056.workstate == 0))
+        if((GB19056.workstate == 0))
             rt_kprintf(" OK\r\n");
         //-------------------------------------------
 
@@ -1690,6 +1649,7 @@ static void GSM_Process(u8 *instr, u16 len)
         //  NO CARRIER
         CallState = CallState_Idle;
         Speak_OFF;// 关闭功放
+        SPEAK_SHDN_OFF;
         failed = true;
         // rt_kprintf("\r\n Callstate=Idle\r\n");
     }
@@ -1733,7 +1693,6 @@ static void GSM_Process(u8 *instr, u16 len)
         //---  add for Test  -----
         if(GB19056.workstate == 0)
             rt_kprintf("\r\n获取IMSI 号码:%s \r\n", GSM_rx);
-        memcpy((char *)IMSI_CODE, (char *)GSM_rx, 15);
         IMSIGet.imsi_error_count = 0;
         IMSIGet.Get_state = 1;
         GSM_PWR.GSM_power_over = 2;   //  get imsi
@@ -1856,6 +1815,8 @@ static void GSM_Process(u8 *instr, u16 len)
             {
                 rt_kprintf("\r\n  TTS ack  error \r\n");
                 Speak_OFF;
+				SPEAK_SHDN_OFF;
+				Disable_Relay();// 关灯
             }
             else if(DataLink_Status())       //   Online  state  Error    , End Link and Redial
             {
@@ -2092,7 +2053,7 @@ void  rt_hw_gsm_init(void)
 
 
 
-    RCC_AHB1PeriphClockCmd( RCC_AHB1Periph_GPIOC | RCC_AHB1Periph_GPIOD, ENABLE );
+    RCC_AHB1PeriphClockCmd( RCC_AHB1Periph_GPIOC | RCC_AHB1Periph_GPIOA, ENABLE );
     RCC_APB1PeriphClockCmd( RCC_APB1Periph_UART4, ENABLE );
 
 
@@ -2147,23 +2108,20 @@ void  rt_hw_gsm_init(void)
     GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
     GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
+    GPIO_Init(GPIOC, &GPIO_InitStructure);
 
     GPIO_InitStructure.GPIO_Pin = GPRS_GSM_PWKEY;
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
-
-    GPIO_InitStructure.GPIO_Pin = GPRS_GSM_RST;		//-----  Reset 常态下置低   高有效
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
 
 
-    GPIO_InitStructure.GPIO_Pin = Speak_Ctrl;		//-----  功放
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
+
     //====================================================================
-    GPIO_ResetBits(GPIOD, GPRS_GSM_RST);  // 常态下置低 Reset
-    GPIO_ResetBits(GPIOD, GPRS_GSM_Power);
-    GPIO_ResetBits(GPIOD, GPRS_GSM_PWKEY);   //GPIO_SetBits(GPIOD,GPRS_GSM_PWKEY);
+    GPIO_ResetBits(GPIOC, GPRS_GSM_Power);
+    GPIO_ResetBits(GPIOA, GPRS_GSM_PWKEY);   //GPIO_SetBits(GPIOD,GPRS_GSM_PWKEY);
 
     Speak_OFF;//  关闭音频功放
+
+
 
     /*
         GPIO_InitStructure.GPIO_Pin =GPIO_Pin_2;		//GPS  串口拉低

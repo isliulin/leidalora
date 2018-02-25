@@ -63,7 +63,6 @@ const unsigned char l_mask_array[8] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40,
 
 /* the LCD display image memory */
 /* buffer arranged so page memory is sequential in RAM */
-static unsigned char l_display_array[LCD_Y_BYTES][LCD_X_BYTES];
 
 //  new   Lcd MMD
 unsigned char ADJUST = 0x23;	//对比度寄存器初始值	，vop调整设置  当前设置数值VDD=3.0V,VOP=0X10=9V
@@ -164,177 +163,317 @@ u8   lcd_hard_init = 0; // 每屏幕  显示器硬件初始话
 u32  lcd_hardIint_couter = 0;
 
 
-void ControlBitShift(unsigned char data)
+
+
+void  LCD_Wrie_Drv(u8 ValueByte)
 {
-    unsigned char i;
+  u8 i=0;
+   
+   for(i=0;i<8;i++)
+   	{
+   	   if((ValueByte>>i)&0x01)
+   	   	{
+   	   	    switch(i)
+   	   	    	{
+                   case 0:   LCD_DB0_1;
+							 break;
+				   case 1:   LCD_DB1_1;
+							 break;
+				   case 2:   LCD_DB2_1;
+							 break;
+									
+				   case 3:   LCD_DB3_1;
+							 break;
 
-    //IOSET0	= STCP1;
-    //IOCLR0 = STCP2;
-    GPIO_SetBits(GPIOE, GPIO_Pin_15);  // 关闭data 操作
-    GPIO_ResetBits(GPIOE, GPIO_Pin_13); // 启动对 CMD 写入
+				   case 4:   LCD_DB4_1;
+							 break;
+				   	
+				   case 5:   LCD_DB5_1;
+							 break;
+				   	
+				   case 6:   LCD_DB6_1;
+							 break;
+				   	
+				   case 7:   LCD_DB7_1;
+							 break;
 
-    for(i = 0; i < 8; i++)
+   	   	    	}
+
+
+   	   	}
+	   else
+	   	{
+		    switch(i)
+			   {
+				  case 0:    LCD_DB0_0;
+				             break;				           
+				  case 1:    LCD_DB1_0;
+				             break;	
+		   
+				  case 2:    LCD_DB2_0;
+				             break;	 
+								   
+				  case 3:    LCD_DB3_0;
+				             break;	
+		   
+ 				  case 4:    LCD_DB4_0;
+				             break;	
+ 				   
+				  case 5:    LCD_DB5_0;
+				             break;	
+				   
+				  case 6:    LCD_DB6_0;
+				             break;	
+				   
+				  case 7:    LCD_DB7_0;
+				             break;	
+		   
+			   }
+
+	   	}
+
+   	}
+
+}
+
+void  LCD_init(void)
+{
+     LCD_REQ_0;
+	 LCD_RES_1;
+}
+
+void LCD_RstLow(void)
+{
+   LCD_RES_0;
+}
+
+void LCD_WriteByte(u8 ByteValue)
+{   
+  u16  i=3000;
+  // 0   wait when  BUSY
+   if(GPIO_ReadInputDataBit(LCD_BUSY_PORT, LCD_BUSY_PIN))
     {
-        //IOCLR0=SHCP;
-        GPIO_ResetBits(GPIOE, GPIO_Pin_12);  //clk
-        if(data & 0x80)
-            //IOSET0 = DS;
-            GPIO_SetBits(GPIOE, GPIO_Pin_14); // data
-        else
-            //IOCLR0 = DS;
-            GPIO_ResetBits(GPIOE, GPIO_Pin_14); // data
-        //IOSET0 = SHCP;
-        GPIO_SetBits(GPIOE, GPIO_Pin_12); //clk
-        data <<= 1;
-    }
-    //IOSET0 = STCP2;
-    GPIO_SetBits(GPIOE, GPIO_Pin_13);
+      while(i--)
+          ;
+	  if(GPIO_ReadInputDataBit(LCD_BUSY_PORT, LCD_BUSY_PIN))
+	  	  return;
+	}
+   // 1  write byte content   when  busy==0
+     LCD_Wrie_Drv(ByteValue);
+   // 2. delay  NOP
+      delay_us(1);
+   // 3. set  REQ
+      LCD_REQ_1;
+   // 4. wait busy=1
+      i=3000;
+      while(i--)
+      	{
+      	  if(GPIO_ReadInputDataBit(LCD_BUSY_PORT, LCD_BUSY_PIN))
+             break;
+      	}
+   //  5.  clear  REQ
+     LCD_REQ_0;
+   //  6.  wait  to end
+      delay_us(2);
+
+}
+
+void  LCD_DISP_CHINESE_Char(u8 Row, u8 Colum,u16  ChineseCode) // 列  行
+{    //  发送5 个字节   
+     u16   DchineseCode=0;
+     DchineseCode=GB2312_to_LCD_Code(ChineseCode);
+     LCD_WriteByte(0xF0); // 汉字
+     LCD_WriteByte(Row);
+	 LCD_WriteByte(Colum);
+     LCD_WriteByte((u8)(DchineseCode>>8));	 
+     LCD_WriteByte((u8)DchineseCode);
+	 delay_ms(3);
+}
+
+void  LCD_DISP_ASCII_8X8Char(u8 Row, u8 Colum,u8  AsciiValue)   // 列  行
+{    
+     LCD_WriteByte(0xF1);
+     LCD_WriteByte(Row);
+	 LCD_WriteByte(Colum);
+     LCD_WriteByte(AsciiValue);	 
+	 delay_ms(3);
+}
+
+void  LCD_DISP_ASCII_8X16Char(u8 Row, u8 Colum,u8  AsciiValue)   // 列  行
+{  
+     LCD_WriteByte(0xF9); 
+     LCD_WriteByte(Row);
+	 LCD_WriteByte(Colum);
+     LCD_WriteByte(AsciiValue);	 
+	 delay_ms(3);
+}
+
+void  LCD_DISP_BitLatice(u8 Row, u8 Colum)
+{   
+     LCD_WriteByte(0xF2); 
+     LCD_WriteByte(Row);
+	 LCD_WriteByte(Colum);
+	 delay_us(300);
+}
+
+void  LCD_DISP_ByteLatice(u8 Row, u8 Colum,u8 option)   // option   0: 白点   1 黑点
+{   
+     LCD_WriteByte(0xF3); 
+     LCD_WriteByte(Row);
+	 LCD_WriteByte(Colum);
+	 LCD_WriteByte(option);
+	 delay_us(300);
+}
+
+void  LCD_DISP_Clear(void)
+{   
+     LCD_WriteByte(0xF4); 
+	 delay_ms(200);
+}
+FINSH_FUNCTION_EXPORT(LCD_DISP_Clear, LCD_DISP_Clear());
+
+
+void  LCD_DISP_MoveUp(void)
+{   
+     LCD_WriteByte(0xF5); //0xF5
+}
+FINSH_FUNCTION_EXPORT(LCD_DISP_MoveUp, LCD_DISP_MoveUp());
+
+void  LCD_DISP_MoveDown(void)
+{   
+     LCD_WriteByte(0xF6); 
+}
+
+void  LCD_DISP_MoveLeft(void)
+{   
+     LCD_WriteByte(0xF7); 
+}
+
+void  LCD_DISP_MoveRight(void)
+{   
+     LCD_WriteByte(0xF8); 
+}
+
+void  LCD_DISP_Reverse(void)
+{   
+     LCD_WriteByte(0xFA); 
+}
+
+void  LCD_DISP_Cursor(u8 select)    //  00  not disp cursor  ;  07   8bit  cursor ;  0F   16bit cursor  
+{   
+     LCD_WriteByte(0xFB); 
+	 LCD_WriteByte(select);
+}
+
+void  LCD_DISP_MoveSPD(u8 select)    //  00  move 1 point  ;  01: move 2point  ;   07  move 8point  ;  0F   16point  
+{   
+     LCD_WriteByte(0xFC); 
+	 LCD_WriteByte(select);
+}
+
+u16 GB2312_to_LCD_Code(u16 inValue)       
+{
+    u16  RTN[2];
+    u16  RTN_value=0;
+   
+	 RTN[0]=(inValue>>8)-0xA0;
+     RTN[1]=(u8)(inValue)-0xA0; 
+     RTN_value=(RTN[0]<<8)+RTN[1];
+	 return RTN_value;
+}
+
+
+void LCD_DISP_8x8_TXT(u8 Row, u8 Colum, u8 *p, u8 len)   //  73   20
+{
+    u8  rrow=Colum,ccolum=Row;
+	u8  i=0;
+
+     if((Colum>LCD_88_Lmax)||(Row>LCD_88_Hmax))
+		 return;
+	 
+
+	for(i=0;i<len;i++)
+    {
+        LCD_DISP_ASCII_8X8Char(rrow,ccolum,*p++);
+		if(rrow>=(LCD_88_Lmax-1))  //  如果一行满了，自动切换到下一行
+		{
+              rrow=0;
+			  ccolum+=8;
+			  if(ccolum>LCD_88_Hmax)
+			  	 ccolum=0;
+		}
+		else
+			rrow++;
+	}
+
+}
+
+void LCD_DISP_8x16_TXT(u8 Row, u8 Colum, u8 *p, u8 len)   //20  66
+{
+    u8  rrow=Colum,ccolum=Row;
+	u8  i=0;
+
+    if((Colum>LCD_816_Lmax)||(Row>LCD_816_Hmax))
+		 return;
+	
+
+	for(i=0;i<len;i++)
+    {
+        LCD_DISP_ASCII_8X16Char(rrow,ccolum,*p++);
+		if(rrow>=(LCD_816_Lmax-1))  //  如果一行满了，自动切换到下一行
+		{
+             rrow=0;//L++
+             ccolum+=16;
+			  if(ccolum>LCD_816_Hmax)
+			  	return;
+			     
+		}
+		else
+			rrow++;
+	}
+
+
+
+}
+
+void LCD_DISP_CHINESE_TXT(u8 Row, u8 Colum,u8 *p, u8 len)
+{
+    u8  rrow=Colum,ccolum=Row;
+	u8  i=0,hz_len=0,reg2b[2];
+	u16 HZ_value=0;
+
+    if(len%2)
+		return;
+     if((Colum>LCD_HZ_Lmax)||(Row>LCD_HZ_Hmax))
+		 return;
+	
+
+    hz_len=len>>1;  
+
+	for(i=0;i<hz_len;i++)
+    {
+        reg2b[0]=*p++;
+		reg2b[1]=*p++;
+		HZ_value=(reg2b[0]<<8)+reg2b[1];
+		
+        LCD_DISP_CHINESE_Char(rrow,ccolum,HZ_value);
+		if(rrow>(LCD_HZ_Lmax-1))  //  如果一行满了，自动切换到下一行
+		{
+		      rrow=0;
+              ccolum++;
+			  if(ccolum>LCD_HZ_Hmax)
+			  	 return; 
+		}
+		else
+			rrow++;
+	}
 
 }
 
 
-void DataBitShift(unsigned char data)
-{
-    unsigned char i;
-    //IOCLR0 = STCP1;
-    GPIO_SetBits(GPIOE, GPIO_Pin_13); //  关闭CMD 操作
-    GPIO_ResetBits(GPIOE, GPIO_Pin_15); // 启动写入data
-    for(i = 0; i < 8; i++)
-    {
-        //IOCLR0=SHCP;
-        GPIO_ResetBits(GPIOE, GPIO_Pin_12); // clk
-        if(data & 0x80)
-            //IOSET0 = DS;
-            GPIO_SetBits(GPIOE, GPIO_Pin_14); // data
-        else
-            //IOCLR0 = DS;
-            GPIO_ResetBits(GPIOE, GPIO_Pin_14); //data
-        //IOSET0 = SHCP;
-        GPIO_SetBits(GPIOE, GPIO_Pin_12);
-        data <<= 1;
-    }
-    //IOSET0 = STCP1;
-    GPIO_SetBits(GPIOE, GPIO_Pin_15);
-
-}
-
-void lcd_clear(void)
-{
-    unsigned char i, j;
-    for(i = 0; i < 4; i++)
-    {
-        lcd_out_ctl(0xb0 + i, 1);
-        lcd_out_ctl(0x10, 1);
-        lcd_out_ctl(0x00, 1);
-        for(j = 0; j < 122; j++)
-        {
-            lcd_out_dat(0x00, 1);
-        }
-    }
-}
-/*
-**
-** low level routine to send a byte value
-** to the LCD controller control register.
-** entry argument is the data to output
-** and the controller to use
-** 1: IC 1, 2: IC 2, 3: both ICs
-**
-*/
-void lcd_out_ctl(const unsigned char cmd, const unsigned char ncontr)
-{
-    unsigned char ctr = 0x00;
-    unsigned int i;
-    u8 cByte = 0x60;  // Q6 是背光
 
 
-    if(Q7_enable == 1)
-        cByte |= 0x80;
-    else
-        cByte &= ~0x80;
-    //0.  SED1520
-    if(0x03 == HardWareVerion)
-    {
-        ControlBitShift(RST0 | 0x0 | cByte);
-        DataBitShift(cmd);
-        ctr = RST0;
-        if(ncontr & 0x01)
-        {
-            ctr |= E1;
-        }
-        if(ncontr & 0x02)
-        {
-            ctr |= E2;
-        }
-        ControlBitShift(ctr | cByte);
-        //delay(1);
-        for(i = 0; i < 0xf; i++) {}
-        ControlBitShift(RST0 | 0 | cByte);
 
-    }
-    // 1. ST7565R LCD        ncontr 已经没有任何意义
-    else if(0x01 == HardWareVerion)
-    {
-        ControlBitShift(RST0 | RD_ | 0x0 | cByte); // WR   0  RD 1
-        DataBitShift(cmd);
-
-        ctr = RST0 | WR_ | RD_; //WR_  1
-        ControlBitShift(ctr | cByte);
-        ControlBitShift(RST0 | WR_ | RD_ | CS_ | 0 | cByte);
-    }
-
-    //   end
-}
-
-/*
-**
-** low level routine to send a byte value
-** to the LCD controller data register. entry argument
-** is the data to output and the controller-number
-**
-*/
-void lcd_out_dat(const unsigned char dat, const unsigned char ncontr)
-{
-    unsigned char ctr = 0x00;
-    unsigned int i;
-    u8 cByte = 0x60;
-
-    if(Q7_enable == 1)
-        cByte |= 0x80;
-    else
-        cByte &= ~0x80;
-    // 0.  SED1520
-    if(0x03 == HardWareVerion)
-    {
-        ctr = RST0 | A0;
-        ControlBitShift(ctr | cByte);
-        DataBitShift(dat);
-        if(ncontr & 0x01)
-        {
-            ctr |= E1;
-        }
-        if(ncontr & 0x02)
-        {
-            ctr |= E2;
-        }
-        ControlBitShift(ctr | cByte);
-        //delay(1);
-        for(i = 0; i < 0xf; i++) {}
-        ControlBitShift(RST0 | A0 | cByte);
-    }
-
-    // 1. ST7565R LCD
-    else if(0x01 == HardWareVerion)
-    {
-        ctr = RST0 | A0 | RD_;
-        ControlBitShift(ctr | cByte);
-        DataBitShift(dat);
-        ctr = RST0 | A0 | WR_ | RD_;
-        ControlBitShift(ctr | cByte);
-        ControlBitShift(RST0 | A0 | WR_ | RD_ | CS_ | cByte);
-    }
-    //  end
-}
 
 
 /*
@@ -342,79 +481,12 @@ void lcd_out_dat(const unsigned char dat, const unsigned char ncontr)
 ** routine to initialize the operation of the LCD display subsystem
 **
 */
-void lcd_init(void)
-{
-
-    // 1. ST7565R LCD
-    if(0x01 == HardWareVerion)
-    {
-        //-----------------------------
-        ControlBitShift(0x0 | 0x60); //
-        ControlBitShift(RST0 | 0x0 | 0x60); //
-
-
-        lcd_out_ctl(0xe2, 3);	//soft reset开始进行软复位
-        lcd_out_ctl(0xa2, 3);	//bias select确定为1/9BIAS,1/33duty
-        lcd_out_ctl(0xa1, 3); //lcd_out_ctl(0xa0,3);	// ADC select确定SEG反扫seg0--->seg131      列扫描
-        lcd_out_ctl(0xc0, 3); //lcd_out_ctl(0xc8,3);	//SHL select确定COM为正扫com63--->com0  行扫描
-        lcd_out_ctl(0x26, 3);	//regulator resistor select V0调整电阻设定(1 + Rb/Ra)=6.5		0X26+0X41		vdd=5.0v,vop=10.0v						 0x26原来的数值
-        lcd_out_ctl(0x81, 3);	//The Electronic Volume (Double Byte Command)数字电位器调节VO输出电压(也就是对比度)两字节				 0x81原来的数值
-        lcd_out_ctl(ADJUST, 3);	 //vop 设置
-        lcd_out_ctl(0x2c, 3);	//power control1 on内部倍压电路开启,需分以下三步打开电路
-        lcd_out_ctl(0x2e, 3);	//power control2
-        lcd_out_ctl(0x2f, 3);	//power control3
-        lcd_out_ctl(0xf1, 3);	//The Booster Ratio (Double Byte Command)设定倍压数,两字节
-        lcd_out_ctl(0x00, 3);	//"00"最大4倍压,"01"最大5倍压,"03"最大6倍压
-        lcd_out_ctl(0x40, 3);	//lcd_out_ctl(0x40,3);//设定起始行第1行  32
-        lcd_out_ctl(0xa4, 3);	//Display All Points ON/OFF to Normal display mode正常显示模式选择
-        lcd_out_ctl(0xaf, 3);	//Display ON/OFF开显示设定
-        //lcd_delay(2);
-        lcd_clear();
-    }
-    else if(0x03 == HardWareVerion)
-    {
-        // 2. SED1520  LCD
-
-        lcd_out_ctl(0, 3);
-        lcd_out_ctl(LCD_RESET, 3);
-        //delay_ms(1);//3
-
-        lcd_out_ctl(LCD_DISP_ON, 3);
-        lcd_out_ctl(LCD_SET_ADC_NOR, 3); // !
-        lcd_out_ctl(LCD_SET_LINE + 16, 3);
-        lcd_out_ctl(LCD_SET_PAGE_SED1520 + 0, 3);
-        lcd_out_ctl(LCD_SET_COL, 3);
-    }
-
-}
-void lcd_RstLow(void)
-{
-    ControlBitShift(0x60); //  开背光
-}
 
 
 /* fill buffer and LCD with pattern */
 void lcd_fill(const unsigned char pattern)
 {
-    unsigned char page, col;
 
-    if((lcd_hard_init) || (0x03 == HardWareVerion))
-    {
-        lcd_init();
-        lcd_out_ctl(LCD_DISP_OFF, 3);
-    }
-    for (page = 0; page < LCD_Y_BYTES; page++)
-    {
-        for (col = 0; col < LCD_X_BYTES; col++)
-            l_display_array[page][col] = pattern;
-    }
-    lcd_update_all();
-
-    if((lcd_hard_init) || (0x03 == HardWareVerion))
-        lcd_out_ctl(LCD_DISP_ON, 3);
-
-    if(0x01 == HardWareVerion)
-        lcd_hard_init = 0;
 }
 
 
@@ -431,416 +503,12 @@ void lcd_fill(const unsigned char pattern)
 */
 void lcd_update(const unsigned char top, const unsigned char bottom)
 {
-    unsigned char x;
-    unsigned char y;
-    unsigned char yt;
-    unsigned char yb;
-    unsigned char *colptr;
-
-    /* setup bytes of range */
-    yb = bottom >> 3;
-    yt = top >> 3;
-
-    for(y = yt; y <= yb; y++)
-    {
-        if(0x03 == HardWareVerion)
-        {
-
-            lcd_out_ctl(LCD_SET_PAGE_SED1520 + y, 3);	/* set page */
-            //	   lcd_out_ctl(LCD_SET_COL+LCD_STARTCOL_REVERSE,3);
-            lcd_out_ctl(LCD_SET_COL + 0, 3);
-
-        }
-        else if(0x01 == HardWareVerion)
-        {
-
-            lcd_out_ctl(LCD_SET_PAGE_ST7565R + y, 3); /* set page */
-            lcd_out_ctl(LCD_SET_COLH + 0, 3); //  add by nathan
-            lcd_out_ctl(LCD_SET_COL + 10, 3); // old  :lcd_out_ctl(LCD_SET_COL+0,3);   modify by nathan
-        }
-        colptr = &l_display_array[y][0];
-
-        for (x = 0; x < LCD_X_BYTES; x++)
-        {
-            if ( x < LCD_X_BYTES / 2 )
-                lcd_out_dat(*colptr++, 1);
-            else
-                lcd_out_dat(*colptr++, 2);
-        }
-    }
 }
 
 
 
 void lcd_update_all(void)
 {
-    lcd_update(SCRN_TOP, SCRN_BOTTOM);
-}
-
-
-
-/* sets/clears/switchs(XOR) dot at (x,y) */
-void lcd_dot(const unsigned char x, const unsigned char y, const unsigned char mode)
-{
-    unsigned char bitnum, bitmask, yByte;
-    unsigned char *pBuffer; /* pointer used for optimisation */
-
-    if ( ( x > SCRN_RIGHT ) || ( y > SCRN_BOTTOM ) ) return;
-
-    yByte   = y >> 3;
-    bitnum  = y & 0x07;
-    bitmask = l_mask_array[bitnum]; // bitmask = ( 1 << (y & 0x07) );
-    pBuffer = &(l_display_array[yByte][x]);
-    switch (mode)
-    {
-    case LCD_MODE_SET:
-        *pBuffer |= bitmask;
-        break;
-    case LCD_MODE_CLEAR:
-        *pBuffer &= ~bitmask;
-        break;
-    case LCD_MODE_XOR:
-        *pBuffer ^= bitmask;
-        break;
-    case LCD_MODE_INVERT:
-        if((*pBuffer) & bitmask > 0)
-        {
-            *pBuffer &= ~bitmask;
-        }
-        else
-        {
-            *pBuffer |= bitmask;
-        }
-        break;
-    default:
-        break;
-    }
-}
-
-
-/* line- and circle-function from a KS0108-library by F. Thiele */
-
-void lcd_line( uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, const uint8_t mode )
-{
-    uint8_t length, xTmp, yTmp, i, y, yAlt;
-    int16_t m;
-
-    if(x1 == x2)
-    {
-        // vertical line
-        // x1|y1 must be the upper point
-        if(y1 > y2)
-        {
-            xTmp = x1;
-            yTmp = y1;
-            x1 = x2;
-            y1 = y2;
-            x2 = xTmp;
-            y2 = yTmp;
-        }
-        length = y2 - y1;
-        for(i = 0; i <= length; i++)
-            lcd_dot(x1, y1 + i, mode);
-    }
-    else if(y1 == y2)
-    {
-        // horizontal line
-        // x1|y1 must be the left point
-        if(x1 > x2)
-        {
-            xTmp = x1;
-            yTmp = y1;
-            x1 = x2;
-            y1 = y2;
-            x2 = xTmp;
-            y2 = yTmp;
-        }
-
-        length = x2 - x1;
-        for(i = 0; i <= length; i++)
-            lcd_dot(x1 + i, y1, mode);
-
-    }
-    else
-    {
-        // x1 must be smaller than x2
-        if(x1 > x2)
-        {
-            xTmp = x1;
-            yTmp = y1;
-            x1 = x2;
-            y1 = y2;
-            x2 = xTmp;
-            y2 = yTmp;
-        }
-
-        if((y2 - y1) >= (x2 - x1) || (y1 - y2) >= (x2 - x1))
-        {
-            // angle larger or equal 45?
-            length = x2 - x1;								// not really the length :)
-            m = ((y2 - y1) * 200) / length;
-            yAlt = y1;
-            for(i = 0; i <= length; i++)
-            {
-                y = ((m * i) / 200) + y1;
-                if((m * i) % 200 >= 100)
-                    y++;
-                else if((m * i) % 200 <= -100)
-                    y--;
-
-                lcd_line(x1 + i, yAlt, x1 + i, y, mode ); /* wuff wuff recurs. */
-                if(length <= (y2 - y1) && y1 < y2)
-                    yAlt = y + 1;
-                else if(length <= (y1 - y2) && y1 > y2)
-                    yAlt = y - 1;
-                else
-                    yAlt = y;
-            }
-        }
-        else
-        {
-            // angle smaller 45?
-            // y1 must be smaller than y2
-            if(y1 > y2)
-            {
-                xTmp = x1;
-                yTmp = y1;
-                x1 = x2;
-                y1 = y2;
-                x2 = xTmp;
-                y2 = yTmp;
-            }
-            length = y2 - y1;
-            m = ((x2 - x1) * 200) / length;
-            yAlt = x1;
-            for(i = 0; i <= length; i++)
-            {
-                y = ((m * i) / 200) + x1;
-
-                if((m * i) % 200 >= 100)
-                    y++;
-                else if((m * i) % 200 <= -100)
-                    y--;
-
-                lcd_line(yAlt, y1 + i, y, y1 + i, mode); /* wuff */
-                if(length <= (x2 - x1) && x1 < x2)
-                    yAlt = y + 1;
-                else if(length <= (x1 - x2) && x1 > x2)
-                    yAlt = y - 1;
-                else
-                    yAlt = y;
-            }
-        }
-    }
-}
-
-#if  0
-void lcd_circle(const uint8_t xCenter, const uint8_t yCenter, const uint8_t radius, const uint8_t mode)
-{
-    int16_t tSwitch, y, x = 0;
-    uint8_t d;
-
-    d = yCenter - xCenter;
-    y = radius;
-    tSwitch = 3 - 2 * radius;
-
-    while (x <= y)
-    {
-        lcd_dot(xCenter + x, yCenter + y, mode);
-        lcd_dot(xCenter + x, yCenter - y, mode);
-
-        lcd_dot(xCenter - x, yCenter + y, mode);
-        lcd_dot(xCenter - x, yCenter - y, mode);
-
-        lcd_dot(yCenter + y - d, yCenter + x, mode);
-        lcd_dot(yCenter + y - d, yCenter - x, mode);
-
-        lcd_dot(yCenter - y - d, yCenter + x, mode);
-        lcd_dot(yCenter - y - d, yCenter - x, mode);
-
-        if (tSwitch < 0)
-            tSwitch += (4 * x + 6);
-        else
-        {
-            tSwitch += (4 * (x - y) + 10);
-            y--;
-        }
-        x++;
-    }
-}
-
-
-void lcd_rect(const uint8_t x, const uint8_t y, uint8_t width, uint8_t height, const uint8_t mode)
-{
-    width--;
-    height--;
-    lcd_line(x, y, x + width, y, mode);	// top
-    lcd_line(x, y, x, y + height, mode);	// left
-    lcd_line(x, y + height, x + width, y + height, mode);	// bottom
-    lcd_line(x + width, y, x + width, y + height, mode);		// right
-}
-
-void lcd_box(const uint8_t x, const uint8_t y, uint8_t width, const uint8_t height, const uint8_t mode)
-{
-    uint8_t i;
-    if (!width) return;
-
-    width--;
-
-    for (i = y; i < y + height; i++)
-        lcd_line(x, i, x + width, i, mode);
-}
-#endif
-
-/*
- Writes a glyph("letter") to the display at location x,y
- (adapted function from the MJK-code)
- Arguments are:
-    column    - x corrdinate of the left part of glyph
-    row       - y coordinate of the top part of glyph
-    width     - size in pixels of the width of the glyph
-    height    - size in pixels of the height of the glyph
-    glyph     - an unsigned char pointer to the glyph pixels
-                to write assumed to be of length "width"
-*/
-
-void lcd_glyph(uint8_t left, uint8_t top, uint8_t width, uint8_t height, uint8_t *glyph_ptr, uint8_t store_width)
-{
-    uint8_t bit_pos;
-    uint8_t byte_offset;
-    uint8_t y_bits;
-    uint8_t remaining_bits;
-    uint8_t mask;
-    uint8_t char_mask;
-    uint8_t x;
-    uint8_t *glyph_scan;
-    uint8_t glyph_offset;
-
-    bit_pos = top & 0x07;		/* get the bit offset into a byte */
-    glyph_offset = 0;			/* start at left side of the glyph rasters */
-    char_mask = 0x80;			/* initial character glyph mask */
-
-    for (x = left; x < (left + width); x++)
-    {
-        byte_offset = top >> 3;        	/* get the byte offset into y direction */
-        y_bits = height;		/* get length in y direction to write */
-        remaining_bits = 8 - bit_pos;	/* number of bits left in byte */
-        mask = l_mask_array[bit_pos];	/* get mask for this bit */
-        glyph_scan = glyph_ptr + glyph_offset;	 /* point to base of the glyph */
-        /* boundary checking here to account for the possibility of  */
-        /* write past the bottom of the screen.                        */
-        while((y_bits) && (byte_offset < LCD_Y_BYTES)) /* while there are bits still to write */
-        {
-            /* check if the character pixel is set or not */
-            //if(*glyph_scan & char_mask)
-            if(pgm_read_byte(glyph_scan) & char_mask)
-                l_display_array[byte_offset][x] |= mask;	/* set image pixel */
-            else
-                l_display_array[byte_offset][x] &= ~mask;	/* clear the image pixel */
-
-            if(l_mask_array[0] & 0x80)
-                mask >>= 1;
-            else
-                mask <<= 1;
-
-            y_bits--;
-            remaining_bits--;
-            if(remaining_bits == 0)
-            {
-                /* just crossed over a byte boundry, reset byte counts */
-                remaining_bits = 8;
-                byte_offset++;
-                mask = l_mask_array[0];
-            }
-            /* bump the glyph scan to next raster */
-            glyph_scan += store_width;
-        }
-
-        /* shift over to next glyph bit */
-        char_mask >>= 1;
-        if(char_mask == 0)				/* reset for next byte in raster */
-        {
-            char_mask = 0x80;
-            glyph_offset++;
-        }
-    }
-}
-
-
-
-void lcd_bitmap(const uint8_t left, const uint8_t top, const struct IMG_DEF *img_ptr, const uint8_t mode)
-{
-    uint8_t width, heigth, h, w, pattern, mask;
-    uint8_t *ptable;
-
-    uint8_t bitnum, bitmask;
-    uint8_t page, col, vdata;
-
-    width  = img_ptr->width_in_pixels;
-    heigth = img_ptr->height_in_pixels;
-    ptable  = (uint8_t *)(img_ptr->char_table);
-
-
-    mask = 0x80;
-    pattern = *ptable;
-
-    for ( h = 0; h < heigth; h++ ) /**/
-    {
-        page = (h + top) >> 3;
-        bitnum = (h + top) & 0x07;
-        bitmask = (1 << bitnum);
-        for ( w = 0; w < width; w++ )
-        {
-            col = left + w;
-            vdata = l_display_array[page][col];
-            switch(mode)
-            {
-            case LCD_MODE_SET:		/*不管原来的数据，直接设置为pattern的值*/
-                if (pattern & mask)
-                    vdata |= bitmask;
-                else
-                    vdata &= ~bitmask;
-                break;
-            case LCD_MODE_CLEAR:	/*不管原来的数据，清除原来的值=>0*/
-                vdata &= ~bitmask;
-                break;
-            case LCD_MODE_XOR:		/*原来的数据，直接设置为pattern的值*/
-                if(vdata & bitmask)
-                {
-                    if(pattern & mask)	vdata &= ~bitmask;
-                    else vdata |= bitmask;
-                }
-                else
-                {
-                    if(pattern & mask)	vdata |= bitmask;
-                    else vdata &= ~bitmask;
-                }
-                break;
-            case LCD_MODE_INVERT:	/*不管原来的数据，直接设置为pattern的值*/
-                if (pattern & mask)
-                    vdata &= ~bitmask;
-                else
-                    vdata |= bitmask;
-                break;
-
-            }
-            l_display_array[page][col] = vdata;
-            mask >>= 1;
-            if ( mask == 0 )
-            {
-                mask = 0x80;
-                ptable++;
-                pattern = *ptable;
-
-            }
-        }
-        if(mask != 0x80) 		/*一行中的列已处理完*/
-        {
-            mask = 0x80;
-            ptable++;
-            pattern = *ptable;
-        }
-    }
 }
 
 
@@ -851,285 +519,9 @@ void lcd_bitmap(const uint8_t left, const uint8_t top, const struct IMG_DEF *img
 */
 void lcd_text12(char left, char top , char *p, char len, const char mode)
 {
-    int charnum = len;
-    int i;
-    char msb, lsb;
-
-    int addr = 0;
-    unsigned char start_col = left;
-    unsigned int  val_old, val_new, val_mask;
-
-    unsigned int glyph[12];   /*保存一个字符的点阵信息，以逐列式*/
-    unsigned char 	font_buf[32];
-
-    DF_TAKE;
-    while( charnum )
-    {
-        for( i = 0; i < 12; i++ )
-        {
-            glyph[i] = 0;
-        }
-        msb = *p++;
-        charnum--;
-        if( msb <= 0x80 ) //ascii字符 0612
-        {
-
-            // select      font  on chip
-            //addr = ( msb - 0x20 ) * 12 + FONT_ASC0612_ADDR;
-
-            //  slect    font  on   8Mbytes  Dataflash
-            addr = ( msb - 0x20 ) * 12 + FONT_ASC0612_ADDR;
-            SST25V_BufferRead( font_buf, addr, 12);
-            addr = (int)font_buf;
-
-            for( i = 0; i < 3; i++ )
-            {
-                val_new				= *(__IO uint32_t *)addr;
-                glyph[i * 2 + 0]	= ( val_new & 0xffff );
-                glyph[i * 2 + 1]	= ( val_new & 0xffff0000 ) >> 16;
-                addr						+= 4;
-            }
-
-            val_mask = ((0xfff) << top); /*12bit*/
-
-            /*加上top的偏移*/
-            for( i = 0; i < 6; i++ )
-            {
-                glyph[i] <<= top;
-
-                val_old = l_display_array[0][start_col] | (l_display_array[1][start_col] << 8) | (l_display_array[2][start_col] << 16) | (l_display_array[3][start_col] << 24);
-                if(mode == LCD_MODE_SET)
-                {
-                    val_new = val_old & (~val_mask) | glyph[i];
-                }
-                else if(mode == LCD_MODE_INVERT)
-                {
-                    val_new = (val_old | val_mask) & (~glyph[i]);
-                }
-                l_display_array[0][start_col] = val_new & 0xff;
-                l_display_array[1][start_col] = (val_new & 0xff00) >> 8;
-                l_display_array[2][start_col] = (val_new & 0xff0000) >> 16;
-                l_display_array[3][start_col] = (val_new & 0xff000000) >> 24;
-                start_col++;
-            }
-        }
-        else
-        {
-            lsb = *p++;
-            charnum--;
-            if( ( msb >= 0xa1 ) && ( msb <= 0xa3 ) && ( lsb >= 0xa1 ) )
-            {
-                // OUT flash
-                addr = FONT_HZ1212_ADDR + ( ( ( (unsigned long)msb ) - 0xa1 ) * 94 + ( ( (unsigned long)lsb ) - 0xa1 ) ) * 24;
-                SST25V_BufferRead( font_buf, addr, 24);
-                addr = (int)font_buf;
-                ///CPU FLASH
-                //addr = FONT_HZ1212_ADDR + ( ( ( (unsigned long)msb ) - 0xa1 ) * 94 + ( ( (unsigned long)lsb ) - 0xa1 ) ) * 24;
-            }
-            else if( ( msb >= 0xb0 ) && ( msb <= 0xf7 ) && ( lsb >= 0xa1 ) )
-            {
-                ///OUT FLASH
-                addr = FONT_HZ1212_ADDR + ( ( ( (unsigned long)msb ) - 0xb0 ) * 94 + ( ( (unsigned long)lsb ) - 0xa1 ) ) * 24 + 282 * 24;
-                SST25V_BufferRead( font_buf, addr, 24);
-                addr = (int)font_buf;
-                ///CPU FLASH
-                //addr = FONT_HZ1212_ADDR + ( ( ( (unsigned long)msb ) - 0xb0 ) * 94 + ( ( (unsigned long)lsb ) - 0xa1 ) ) * 24 + 282 * 24;
-            }
-            for( i = 0; i < 6; i++ )
-            {
-                val_new				= *(__IO uint32_t *)addr;
-                glyph[i * 2 + 0]	= ( val_new & 0xffff );
-                glyph[i * 2 + 1]	= ( val_new & 0xffff0000 ) >> 16;
-                addr				+= 4;
-            }
-            val_mask = ((0xfff) << top); /*12bit*/
-
-            /*加上top的偏移*/
-            for( i = 0; i < 12; i++ )
-            {
-                glyph[i] <<= top;
-                /*通过start_col映射到I_display_array中，注意mask*/
-                val_old = l_display_array[0][start_col] | (l_display_array[1][start_col] << 8) | (l_display_array[2][start_col] << 16) | (l_display_array[3][start_col] << 24);
-                if(mode == LCD_MODE_SET)
-                {
-                    val_new = val_old & (~val_mask) | glyph[i];
-                }
-                else if(mode == LCD_MODE_INVERT)
-                {
-                    val_new = (val_old | val_mask) & (~glyph[i]);
-                }
-                l_display_array[0][start_col] = val_new & 0xff;
-                l_display_array[1][start_col] = (val_new & 0xff00) >> 8;
-                l_display_array[2][start_col] = (val_new & 0xff0000) >> 16;
-                l_display_array[3][start_col] = (val_new & 0xff000000) >> 24;
-                start_col++;
-            }
-
-        }
-    }
-
-
-    DF_RELEASE;
 
 }
 
-void lcd_text12_local(char left, char top , char *p, char len, const char mode)
-{
-    int charnum = len;
-    int i;
-    char msb, lsb;
-    u16  GB_Code = 0;
-
-    int addr = 0;
-    unsigned char start_col = left;
-    unsigned int  val_old, val_new, val_mask;
-
-    unsigned int glyph[12];   /*保存一个字符的点阵信息，以逐列式*/
-    unsigned char 	font_buf[32];
-
-    DF_TAKE;
-    while( charnum )
-    {
-        for( i = 0; i < 12; i++ )
-        {
-            glyph[i] = 0;
-        }
-        msb = *p++;
-        charnum--;
-        if( msb <= 0x80 ) //ascii字符 0612
-        {
-            ;
-        }
-        else
-        {
-            lsb = *p++;
-            charnum--;
-            GB_Code = (msb << 8) + lsb;
-            //----------------------------------------------------------
-            switch(GB_Code)
-            {
-            case  0xC9E8:
-                //  设C9E8
-                memcpy(font_buf, Dot_She, 24);
-                break;
-            case  0xB1B8:
-                // 备B1B8
-                memcpy(font_buf, Dot_Bei, 24);
-                break;
-
-            case  0xBCEC:
-                //检 BCEC
-                memcpy(font_buf, Dot_Jian, 24);
-                break;
-
-            case  0xD7D4:
-                //自 D7D4
-                memcpy(font_buf, Dot_Zi, 24);
-                break;
-            case  0xD5FD:
-                // 正D5FD
-                memcpy(font_buf, Dot_Zheng, 24);
-                break;
-
-            case  0xB3A3:
-                //  常 B3A3
-                memcpy(font_buf, Dot_Chang, 24);
-                break;
-
-            case  0xCCEC:
-                // 天CCEC
-                memcpy(font_buf, Dot_Tian, 24);
-                break;
-
-            case  0xCFDF:
-                // 线CFDF
-                memcpy(font_buf, Dot_Xian, 24);
-                break;
-            case  0xBFAA:
-                // 开BFAA
-                memcpy(font_buf, Dot_Kai, 24);
-                break;
-            case  0xB6CC:
-                //路 B6CC
-                memcpy(font_buf, Dot_Lu, 24);
-                break;
-
-            case  0xC2B7:
-                //短C2B7
-                memcpy(font_buf, Dot_Duan, 24);
-                break;
-
-            case  0xC4DA:
-                //  内C4DA
-                memcpy(font_buf, Dot_Nei, 24);
-                break;
-
-            case  0xB2BF:
-                // 部B2BF
-                memcpy(font_buf, Dot_Bu, 24);
-                break;
-
-            case  0xB5E7:
-                // 电B5E7
-                memcpy(font_buf, Dot_Dian, 24);
-                break;
-
-            case  0xB3D8:
-                // 池B3D8
-                memcpy(font_buf, Dot_Chi, 24);
-                break;
-
-            case  0xB9A9:
-                // 供B9A9
-                memcpy(font_buf, Dot_Gong, 24);
-                break;
-
-            default:
-                // .
-                memcpy(font_buf, Dot_dot, 24);
-                break;
-            }
-
-            addr = (int)font_buf;
-            // OutPrint_HEX("汉字 点阵x",font_buf,24);
-            //-----------------------------------------------------------
-            for( i = 0; i < 6; i++ )
-            {
-                val_new				= *(__IO uint32_t *)addr;
-                glyph[i * 2 + 0]	= ( val_new & 0xffff );
-                glyph[i * 2 + 1]	= ( val_new & 0xffff0000 ) >> 16;
-                addr				+= 4;
-            }
-            val_mask = ((0xfff) << top); /*12bit*/
-
-            /*加上top的偏移*/
-            for( i = 0; i < 12; i++ )
-            {
-                glyph[i] <<= top;
-                /*通过start_col映射到I_display_array中，注意mask*/
-                val_old = l_display_array[0][start_col] | (l_display_array[1][start_col] << 8) | (l_display_array[2][start_col] << 16) | (l_display_array[3][start_col] << 24);
-                if(mode == LCD_MODE_SET)
-                {
-                    val_new = val_old & (~val_mask) | glyph[i];
-                }
-                else if(mode == LCD_MODE_INVERT)
-                {
-                    val_new = (val_old | val_mask) & (~glyph[i]);
-                }
-                l_display_array[0][start_col] = val_new & 0xff;
-                l_display_array[1][start_col] = (val_new & 0xff00) >> 8;
-                l_display_array[2][start_col] = (val_new & 0xff0000) >> 16;
-                l_display_array[3][start_col] = (val_new & 0xff000000) >> 24;
-                start_col++;
-            }
-
-        }
-    }
-
-
-    DF_RELEASE;
-
-}
 
 
 /*

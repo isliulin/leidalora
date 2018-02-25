@@ -190,10 +190,10 @@
 #if  1   // hebei  current
 // FINISH   有限级别是这个    11   #define FINSH_THREAD_PRIORITY    11
 #define  Prio_Demo         18                                // Demo application thread
-#define  Prio_GSM          12
-#define  Prio_GPS          13
-#define  Prio_App808       15
-#define  Prio_HMI          10
+#define  Prio_GSM          10
+#define  Prio_GPS          19
+#define  Prio_App808       13
+#define  Prio_HMI          12
 #define  Prio_GBDRV        16
 
 #endif

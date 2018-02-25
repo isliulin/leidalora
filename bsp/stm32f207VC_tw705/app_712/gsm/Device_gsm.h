@@ -29,9 +29,8 @@ typedef enum DialStage {Dial_DialInit0, Dial_DialInit1, Dial_DialInit2, Dial_Dia
 
 
 
-#define GPRS_GSM_Power    GPIO_Pin_13
-#define GPRS_GSM_PWKEY    GPIO_Pin_12
-#define GPRS_GSM_RST      GPIO_Pin_11
+#define GPRS_GSM_Power    GPIO_Pin_12
+#define GPRS_GSM_PWKEY    GPIO_Pin_4
 
 
 #define  Dial_Timeout			   50		// 3 seconds        500 
@@ -101,13 +100,7 @@ typedef  struct
 //  TTS   相关
 #define   TTS_BUSY        1
 #define   TTS_OK            0
-#define   Speak_Ctrl             GPIO_Pin_9
 #define   TTS_SV_MAXNUM     5
-
-
-#define  Speak_OFF         GPIO_SetBits(GPIOD,Speak_Ctrl)
-#define  Speak_ON           GPIO_ResetBits(GPIOD,Speak_Ctrl)
-
 
 typedef   struct
 {
@@ -200,8 +193,6 @@ extern 	GSM_POWER	GSM_PWR;
 
 extern void  gsm_power_cut(void);
 extern void  AT_cmd_send_TimeOUT(void);
-extern void  GSM_CSQ_timeout(void);
-extern u8    GSM_CSQ_Query(void);
 extern u8    GSM_Working_State(void);  //  表示GSM ，可以正常工作
 extern void  DataLink_MainSocket_set(u8 *IP, u16  PORT, u8 DebugOUT);
 extern void  DataLink_AuxSocket_set(u8 *IP, u16  PORT, u8 DebugOUT) ;
@@ -221,7 +212,6 @@ extern void  GPRS_GSM_PowerOFF_Working(void);
 extern void  GSM_Module_PowerOFF_Enable(void);
 extern void  Data_Send(u8 *DataStr, u16  Datalen, u8  Link_Num);
 extern void  End_Datalink(void);
-extern void  ISP_Timer(void);
 extern void Redial_Init(void);
 extern void rt_hw_gsm_output(const char *str);
 extern void rt_hw_gsm_output_Data(u8 *Instr, u16 len);
